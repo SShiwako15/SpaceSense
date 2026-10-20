@@ -125,6 +125,13 @@ function App() {
     const window = initialSearchTime();
     return { resourceId: "", start: `${window.date}T${window.startTime}`, end: `${window.date}T${window.endTime}`, reason: "" };
   });
+  const [waitlistEntries, setWaitlistEntries] = useState(null);
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const [waitlistError, setWaitlistError] = useState("");
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
+  const [waitlistForm, setWaitlistForm] = useState({ resourceId: "", title: "", organizer: "", attendees: 1 });
+  const [waitlistSubmitError, setWaitlistSubmitError] = useState("");
   const [searchLoading, setSearchLoading] = useState(true);
   const [searchError, setSearchError] = useState("");
   const [dataError, setDataError] = useState("");
@@ -187,6 +194,18 @@ function App() {
   const displayedResources = favoritesOnly
     ? resources.filter((resource) => favoriteIds.has(String(resource.id)))
     : resources;
+  const waitlistResources = allResources.filter((resource) => {
+    const query = String(resultsFilters.query || "").trim().toLowerCase();
+    const matchesType = !resultsFilters.type ||
+      (resultsFilters.type === "room" ? resource.type !== "equipment" : resource.type === resultsFilters.type);
+    const matchesQuery = !query || [resource.name, resource.type, resource.building, resource.description, ...(resource.features || [])]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+    return matchesType && matchesQuery &&
+      (!resultsFilters.minCapacity || resource.capacity >= Number(resultsFilters.minCapacity)) &&
+      (!resultsFilters.accessible || resource.accessible) &&
+      (resultsFilters.features || []).every((feature) =>
+        (resource.features || []).some((item) => item.toLowerCase() === feature.toLowerCase()));
+  });
   const weekDates = useMemo(() => mondayWeek(selectedWeekDate), [selectedWeekDate]);
   const matchesBookingFilters = (reservation) => {
     const resource = byId.get(String(reservation.resourceId));
@@ -269,6 +288,19 @@ function App() {
       setMaintenanceError(reason.message);
     } finally {
       setMaintenanceLoading(false);
+    }
+  }, []);
+
+  const loadWaitlist = useCallback(async () => {
+    setWaitlistLoading(true);
+    setWaitlistError("");
+    try {
+      const data = await api.waitlist();
+      setWaitlistEntries(Array.isArray(data) ? data : []);
+    } catch (reason) {
+      setWaitlistError(reason.message);
+    } finally {
+      setWaitlistLoading(false);
     }
   }, []);
 
@@ -358,7 +390,8 @@ function App() {
     if (!forecast) loadForecast();
     if (!pendingApprovals) loadApprovals();
     if (!maintenanceWindows) loadMaintenance();
-  }, [tab, utilization, forecast, pendingApprovals, maintenanceWindows, loadStats, loadForecast, loadApprovals, loadMaintenance]);
+    if (!waitlistEntries) loadWaitlist();
+  }, [tab, utilization, forecast, pendingApprovals, maintenanceWindows, waitlistEntries, loadStats, loadForecast, loadApprovals, loadMaintenance, loadWaitlist]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -618,6 +651,36 @@ function App() {
       ]);
     } catch (reason) {
       setMaintenanceError(reason.message);
+    }
+  }
+
+  async function joinWaitlist(event) {
+    event.preventDefault();
+    setWaitlistSubmitting(true);
+    setWaitlistSubmitError("");
+    try {
+      const result = await api.createWaitlistRequest({
+        ...waitlistForm,
+        attendees: Number(waitlistForm.attendees),
+        start: selectedWindow.start,
+        end: selectedWindow.end,
+      });
+      setToast(result.duplicate ? "You are already on the waitlist for this slot." : "Added to the waitlist. We’ll notify you if it opens.");
+      setWaitlistOpen(false);
+      setWaitlistForm({ resourceId: "", title: "", organizer: "", attendees: Number(resultsFilters.minCapacity) || 1 });
+    } catch (reason) {
+      setWaitlistSubmitError(reason.message);
+    } finally {
+      setWaitlistSubmitting(false);
+    }
+  }
+
+  async function removeWaitlistEntry(entry) {
+    try {
+      await api.deleteWaitlistRequest(entry.id);
+      await loadWaitlist();
+    } catch (reason) {
+      setWaitlistError(reason.message);
     }
   }
 
@@ -1206,27 +1269,40 @@ function App() {
                     title={favoritesOnly && resources.length ? "No saved spaces match this search" : "No spaces match this search"}
                     description={favoritesOnly && resources.length ? "Save a resource with the star button, or turn off the saved spaces filter." : "Try a different time, a smaller group, or fewer feature filters."}
                     action={
-                      <button
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border-0 px-4 py-2.5 text-[11px] font-extrabold border border-[#cbdcd5] bg-white text-teal hover:bg-[#edf7f2]"
-                        type="button"
-                        onClick={() => {
-                          const reset = {
-                            query: "",
-                            type: "",
-                            minCapacity: "",
-                            features: [],
-                            accessible: false,
-                            ...initialSearchTime(),
-                          };
-                          setFilters(reset);
-                          runSearch(reset);
-                        }}
-                      >
-                        Reset filters <ArrowRight size={16} />
-                      </button>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <button
+                          className="inline-flex items-center justify-center gap-2 rounded-lg border-0 px-4 py-2.5 text-[11px] font-extrabold border border-[#cbdcd5] bg-white text-teal hover:bg-[#edf7f2]"
+                          type="button"
+                          onClick={() => {
+                            const reset = { query: "", type: "", minCapacity: "", features: [], accessible: false, ...initialSearchTime() };
+                            setFilters(reset);
+                            runSearch(reset);
+                          }}
+                        >Reset filters <ArrowRight size={16} /></button>
+                        <button className="inline-flex items-center justify-center gap-2 rounded-lg border-0 bg-[#1d8374] px-4 py-2.5 text-[11px] font-extrabold text-white" type="button" onClick={() => { setWaitlistOpen((open) => !open); setWaitlistSubmitError(""); }}>Join the waitlist <ArrowRight size={16} /></button>
+                      </div>
                     }
                   />
                 )
+              )}
+              {!searchLoading && !resources.length && !searchError && waitlistOpen && (
+                <form className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-[#d7e8df] bg-[#f5faf7] p-4 max-[600px]:grid-cols-1" onSubmit={joinWaitlist}>
+                  <div className="col-span-full">
+                    <h3 className="m-0 text-sm font-bold text-ink">Waitlist for {formatDate(selectedWindow.start, { weekday: "long", month: "short", day: "numeric" })}, {windowLabel}</h3>
+                    <p className="mt-1 text-[10px] text-muted">We’ll add your request to the selected resource and notify you when the slot may have opened.</p>
+                  </div>
+                  <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                    <span>Resource matching your requirements</span>
+                    <select className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={waitlistForm.resourceId} onChange={(event) => setWaitlistForm((current) => ({ ...current, resourceId: event.target.value }))} required>
+                      <option value="">Choose a resource</option>{waitlistResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.name} · {resource.capacity} capacity</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-[9px] font-bold text-[#587079]"><span>Event name</span><input className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={waitlistForm.title} onChange={(event) => setWaitlistForm((current) => ({ ...current, title: event.target.value }))} maxLength={120} required /></label>
+                  <label className="grid gap-1 text-[9px] font-bold text-[#587079]"><span>Organizer</span><input className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={waitlistForm.organizer} onChange={(event) => setWaitlistForm((current) => ({ ...current, organizer: event.target.value }))} maxLength={120} required /></label>
+                  <label className="grid gap-1 text-[9px] font-bold text-[#587079]"><span>{waitlistResources.find((resource) => resource.id === waitlistForm.resourceId)?.type === "equipment" ? "Units" : "Attendees"}</span><input className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" type="number" min="1" max={waitlistResources.find((resource) => resource.id === waitlistForm.resourceId)?.capacity || undefined} value={waitlistForm.attendees} onChange={(event) => setWaitlistForm((current) => ({ ...current, attendees: event.target.value }))} required /></label>
+                  {waitlistSubmitError && <div className="col-span-full rounded-lg bg-[#fff2ec] p-2 text-[10px] text-[#b85c45]" role="alert">{waitlistSubmitError}</div>}
+                  <div className="col-span-full flex justify-end"><button className="rounded-md border-0 bg-[#1d8374] px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50" type="submit" disabled={waitlistSubmitting || !waitlistResources.length}>{waitlistSubmitting ? "Adding…" : "Join waitlist"}</button></div>
+                </form>
               )}
             </section>
           </div>
@@ -1648,6 +1724,26 @@ function App() {
               ) : (
                 <p className="py-4 text-xs text-muted">No reservations are waiting for approval.</p>
               )}
+            </section>
+            <section className="mb-5 rounded-[15px] border border-line bg-white p-6">
+              <PanelTitle
+                eyebrow="DEMAND QUEUE"
+                title="Slot waitlist"
+                description="Requests are notified when a matching booking or maintenance block is removed. Users still recheck and book the slot themselves."
+                action={<button type="button" className="text-[10px] font-bold text-teal" onClick={loadWaitlist} disabled={waitlistLoading}>{waitlistLoading ? "Refreshing…" : "Refresh"}</button>}
+              />
+              {waitlistError && <div className="mb-3 rounded-lg bg-[#fff2ec] p-2.5 text-[10px] text-[#b85c45]" role="alert">{waitlistError}</div>}
+              {waitlistEntries?.length ? (
+                <div className="grid gap-2">
+                  {waitlistEntries.map((entry) => {
+                    const resource = byId.get(String(entry.resourceId));
+                    return <article key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#e6ece8] bg-[#fbfdfb] p-3">
+                      <div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[10px] text-ink">{entry.title}</strong><span className={`rounded px-1.5 py-1 text-[8px] font-bold ${entry.status === "notified" ? "bg-[#e6f4ee] text-teal" : "bg-[#edf2fb] text-[#6279a2]"}`}>{entry.status}</span></div><span className="block text-[9px] text-muted">{resource?.name || entry.resourceId} · {entry.organizer} · {formatDateTime(entry.start)} – {formatTime(entry.end)} · {entry.attendees} {resource?.type === "equipment" ? "units" : "attendees"}</span></div>
+                      <button type="button" className="rounded-md border border-line bg-white px-2.5 py-1.5 text-[9px] font-bold text-[#ad654d]" onClick={() => removeWaitlistEntry(entry)}>Remove</button>
+                    </article>;
+                  })}
+                </div>
+              ) : waitlistLoading ? <p className="py-3 text-center text-[10px] text-muted">Loading waitlist…</p> : <p className="py-3 text-center text-[10px] text-muted">No waitlist requests.</p>}
             </section>
             <div className="grid grid-cols-[1.4fr_.8fr] gap-5 max-[1000px]:grid-cols-1">
               <section className="rounded-[15px] border border-line bg-white p-6">

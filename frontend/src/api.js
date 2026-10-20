@@ -60,6 +60,11 @@ export const api = {
     request("/maintenance", { method: "POST", body: JSON.stringify(body) }),
   deleteMaintenance: (id) =>
     request(`/maintenance/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  waitlist: () => request("/waitlist"),
+  createWaitlistRequest: (body) =>
+    request("/waitlist", { method: "POST", body: JSON.stringify(body) }),
+  deleteWaitlistRequest: (id) =>
+    request(`/waitlist/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createReservation: (body) =>
     request("/reservations", { method: "POST", body: JSON.stringify(body) }),
   updateReservation: (id, body) =>

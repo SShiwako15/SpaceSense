@@ -29,6 +29,7 @@ Open `http://localhost:5173`. On macOS or Linux, use `npm` instead of `npm.cmd`.
 - Create weekly reservation series with up to 12 occurrences. Every occurrence is checked in one transaction; a conflict leaves the entire series unchanged. Individual occurrences or the full series can be cancelled later.
 - Submit laboratory and equipment bookings for staff approval. Pending requests hold their time; administrators can approve or decline them in the operations view.
 - Schedule temporary maintenance windows from the operations view. Maintenance blocks search, booking, approvals, allocation, and available utilization hours; a window cannot be placed over an active reservation.
+- Join the waitlist for a matching resource and time when every option is occupied. The app sends an in-app notification when a cancellation, declined request, or removed maintenance window opens the slot; users recheck availability before booking.
 - Review in-app notifications for booking requests, approvals, declines, updates, and cancellations. Notifications can be marked read and are saved locally.
 - Turn a natural-language request into structured search filters, then run those filters through the same reservation search engine.
 - View upcoming reservations and seven-day room utilization.
@@ -36,7 +37,7 @@ Open `http://localhost:5173`. On macOS or Linux, use `npm` instead of `npm.cmd`.
 - Explore a 14-day room-demand outlook by day and room type. It uses the previous eight matching weekdays, gives recent bookings more weight, adjusts for the academic term, and includes confirmed upcoming bookings as a floor. A fresh installation includes fictional history for the demo.
 - Load 50 fictional, overlapping events and calculate a feasible, priority-aware room plan. The planner checks capacity, required features, accessibility, existing reservations, and overlapping events; it reports unassigned events and seat-use metrics. Its bounded search does not prove global optimality.
 
-Reservation data is saved locally in `backend/Data/reservations.json` and seeded on first launch. Maintenance windows use `backend/Data/maintenance.json`; notifications are saved in `backend/Data/notifications.json`. Delete the reservation file while the API is stopped to restore the sample reservations.
+Reservation data is saved locally in `backend/Data/reservations.json` and seeded on first launch. Maintenance windows, waitlist requests, and notifications are saved in `backend/Data/maintenance.json`, `backend/Data/waitlist.json`, and `backend/Data/notifications.json`. Delete the reservation file while the API is stopped to restore the sample reservations.
 
 ## API overview
 
@@ -53,6 +54,9 @@ Reservation data is saved locally in `backend/Data/reservations.json` and seeded
 | GET | `/api/maintenance` | List maintenance windows, optionally filtered by `resourceId` |
 | POST | `/api/maintenance` | Schedule a maintenance window |
 | DELETE | `/api/maintenance/{id}` | Remove a maintenance window |
+| GET | `/api/waitlist` | List waitlist requests |
+| POST | `/api/waitlist` | Join a resource and time-slot waitlist |
+| DELETE | `/api/waitlist/{id}` | Remove a waitlist request |
 | POST | `/api/reservations/{id}/approve` | Approve a pending reservation |
 | POST | `/api/reservations/{id}/reject` | Decline a pending reservation |
 | GET | `/api/notifications` | Notification feed and unread count |

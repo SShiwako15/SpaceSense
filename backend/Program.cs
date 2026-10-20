@@ -4,6 +4,7 @@ using SpaceSense.Api;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<ReservationStore>();
 builder.Services.AddSingleton<NotificationStore>();
+builder.Services.AddSingleton<WaitlistStore>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .SetIsOriginAllowed(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
         (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host == "127.0.0.1"))
@@ -90,11 +91,12 @@ app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store
     return Results.Created($"/api/reservations/{saved.Id}", saved);
 });
 
-app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, ReservationStore store, NotificationStore notifications) =>
+app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, ReservationStore store, NotificationStore notifications, WaitlistStore waitlist) =>
 {
     var errors = ApiQueries.ValidateReservation(input);
     if (errors.Count > 0) return Results.ValidationProblem(errors);
     var canonicalInput = input with { ResourceId = ResourceCatalog.Find(input.ResourceId!)!.Id };
+    var previous = store.Get(id);
     var result = store.Save(canonicalInput, id);
     if (result.NotFound) return Results.NotFound();
     if (result.Reservation is null)
@@ -107,19 +109,26 @@ app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, Reserva
         result.Reservation.Status == "pending" ? "Reservation update needs approval" : "Reservation updated",
         $"{result.Reservation.Title} was updated for {result.Reservation.Start:MMM d, h:mm tt}.",
         result.Reservation.Id, result.Reservation.SeriesId);
+    if (previous is not null &&
+        (!previous.ResourceId.Equals(result.Reservation.ResourceId, StringComparison.OrdinalIgnoreCase) ||
+         previous.Start != result.Reservation.Start || previous.End != result.Reservation.End))
+        WaitlistNotifier.NotifyAvailable(waitlist, store, notifications,
+            previous.ResourceId, previous.Start, previous.End);
     return Results.Ok(result.Reservation);
 });
 
-app.MapDelete("/api/reservations/{id}", (string id, ReservationStore store, NotificationStore notifications) =>
+app.MapDelete("/api/reservations/{id}", (string id, ReservationStore store, NotificationStore notifications, WaitlistStore waitlist) =>
 {
     var reservation = store.Get(id);
     if (reservation is null || !store.Delete(id)) return Results.NotFound();
     notifications.Add("cancellation", "Reservation cancelled",
         $"{reservation.Title} for {reservation.Start:MMM d, h:mm tt} was cancelled.", reservation.Id, reservation.SeriesId);
+    WaitlistNotifier.NotifyAvailable(waitlist, store, notifications,
+        reservation.ResourceId, reservation.Start, reservation.End);
     return Results.NoContent();
 });
 
-app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, ReservationStore store, NotificationStore notifications) =>
+app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, ReservationStore store, NotificationStore notifications, WaitlistStore waitlist) =>
 {
     var series = store.List().Where(item => item.SeriesId == seriesId).ToArray();
     var deleted = store.DeleteSeries(seriesId);
@@ -127,6 +136,9 @@ app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, Reservati
     var first = series.FirstOrDefault();
     notifications.Add("cancellation", "Weekly series cancelled",
         $"{first?.Title ?? "Reservation series"}: {deleted} occurrences were cancelled.", first?.Id, seriesId);
+    foreach (var occurrence in series)
+        WaitlistNotifier.NotifyAvailable(waitlist, store, notifications,
+            occurrence.ResourceId, occurrence.Start, occurrence.End);
     return Results.NoContent();
 });
 
@@ -153,8 +165,38 @@ app.MapPost("/api/maintenance", (MaintenanceInput input, ReservationStore store)
         : Results.Created($"/api/maintenance/{result.Window.Id}", result.Window);
 });
 
-app.MapDelete("/api/maintenance/{id}", (string id, ReservationStore store) =>
-    store.DeleteMaintenance(id) ? Results.NoContent() : Results.NotFound());
+app.MapDelete("/api/maintenance/{id}", (string id, ReservationStore store, NotificationStore notifications, WaitlistStore waitlist) =>
+{
+    var window = store.MaintenanceList().FirstOrDefault(item => item.Id == id);
+    if (window is null || !store.DeleteMaintenance(id)) return Results.NotFound();
+    WaitlistNotifier.NotifyAvailable(waitlist, store, notifications,
+        window.ResourceId, window.Start, window.End);
+    return Results.NoContent();
+});
+
+app.MapGet("/api/waitlist", (WaitlistStore waitlist) => Results.Ok(waitlist.List()));
+
+app.MapPost("/api/waitlist", (WaitlistInput input, ReservationStore store, WaitlistStore waitlist) =>
+{
+    var reservationInput = new ReservationInput(input.ResourceId, input.Title, input.Organizer,
+        input.Start, input.End, input.Attendees);
+    var errors = ApiQueries.ValidateReservation(reservationInput);
+    if (errors.Count > 0) return Results.ValidationProblem(errors);
+    var resource = ResourceCatalog.Find(input.ResourceId!)!;
+    var maintenance = store.MaintenanceConflicts(resource.Id, input.Start, input.End);
+    if (maintenance.Count > 0)
+        return Results.Conflict(new { error = "Scheduled maintenance prevents waitlisting this time.", maintenanceConflicts = maintenance });
+    if (store.Conflicts(resource.Id, input.Start, input.End).Count == 0)
+        return Results.Conflict(new { error = "This slot is currently available. Submit a reservation instead." });
+
+    var result = waitlist.Add(input with { ResourceId = resource.Id });
+    return result.Duplicate
+        ? Results.Ok(new { entry = result.Entry, duplicate = true })
+        : Results.Created($"/api/waitlist/{result.Entry!.Id}", new { entry = result.Entry, duplicate = false });
+});
+
+app.MapDelete("/api/waitlist/{id}", (string id, WaitlistStore waitlist) =>
+    waitlist.Delete(id) ? Results.NoContent() : Results.NotFound());
 
 app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store, NotificationStore notifications) =>
 {
@@ -171,7 +213,7 @@ app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store
     return Results.Ok(result.Reservation);
 });
 
-app.MapPost("/api/reservations/{id}/reject", (string id, ReservationStore store, NotificationStore notifications) =>
+app.MapPost("/api/reservations/{id}/reject", (string id, ReservationStore store, NotificationStore notifications, WaitlistStore waitlist) =>
 {
     var result = store.Reject(id);
     if (result.NotFound) return Results.NotFound();
@@ -179,6 +221,8 @@ app.MapPost("/api/reservations/{id}/reject", (string id, ReservationStore store,
     notifications.Add("approval", "Reservation declined",
         $"{result.Reservation!.Title} for {result.Reservation.Start:MMM d, h:mm tt} was declined.",
         result.Reservation.Id, result.Reservation.SeriesId);
+    WaitlistNotifier.NotifyAvailable(waitlist, store, notifications,
+        result.Reservation.ResourceId, result.Reservation.Start, result.Reservation.End);
     return Results.Ok(result.Reservation);
 });
 
