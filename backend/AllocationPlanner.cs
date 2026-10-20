@@ -60,6 +60,7 @@ public static class AllocationPlanner
 {
     private const int MaximumSearchStates = 60_000;
     private const int MaximumSearchMilliseconds = 350;
+    private static readonly TimeZoneInfo CampusZone = FindCampusZone();
     private const string MethodDescription =
         "Priority-aware bounded search; feasible plan, global optimum not guaranteed.";
 
@@ -100,6 +101,7 @@ public static class AllocationPlanner
 
         var errors = new Dictionary<int, string>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var planningEvents = new List<AllocationEvent>();
         var items = new List<PlanningItem>();
         var weightBase = (long)events.Count + 1;
         var weights = new long[6];
@@ -121,12 +123,6 @@ public static class AllocationPlanner
             if (string.IsNullOrWhiteSpace(requested.Id))
             {
                 errors[index] = "Event ID is required.";
-                continue;
-            }
-
-            if (!seenIds.Add(requested.Id))
-            {
-                errors[index] = "Event ID must be unique in this plan.";
                 continue;
             }
 
@@ -159,6 +155,22 @@ public static class AllocationPlanner
                 errors[index] = "Priority must be between 1 and 5.";
                 continue;
             }
+
+            if (requested.RequiredFeatures is null ||
+                requested.RequiredFeatures.Any(string.IsNullOrWhiteSpace))
+            {
+                errors[index] = "Required features must be an array of nonblank names.";
+                continue;
+            }
+
+            if (!seenIds.Add(requested.Id.Trim()))
+            {
+                errors[index] = "Event ID must be unique in this plan.";
+                continue;
+            }
+
+            // Only structurally valid, unique events define the time being planned.
+            planningEvents.Add(requested);
 
             var matchingRooms = Enumerable.Range(0, rooms.Length)
                 .Where(roomIndex => MeetsRequirements(rooms[roomIndex], requested))
@@ -322,11 +334,7 @@ public static class AllocationPlanner
             .ThenBy(assignment => assignment.EventTitle, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var validIntervals = events
-            .Where(requested => requested is not null && requested.End > requested.Start &&
-                (requested.End - requested.Start).TotalHours <= 12)
-            .ToArray();
-        var planningWindows = BuildPlanningWindows(validIntervals);
+        var planningWindows = BuildPlanningWindows(planningEvents.ToArray());
         var planningMinutes = planningWindows.Sum(window => DurationMinutes(window.Start, window.End));
 
         long totalOccupiedMinutes = 0;
@@ -477,21 +485,22 @@ public static class AllocationPlanner
     private static (DateTimeOffset Start, DateTimeOffset End)[] BuildPlanningWindows(
         AllocationEvent[] events)
     {
-        // Measure utilization over the campus day on each date requested, rather
-        // than counting nights between events as unused room time.
+        // Group all timestamps by campus date, even if clients supplied different
+        // UTC offsets. This also keeps daylight-saving transitions in the right day.
         var byDate = new Dictionary<DateOnly, (DateTimeOffset Start, DateTimeOffset End)>();
         foreach (var requested in events)
         {
             var segmentStart = requested.Start;
             while (segmentStart < requested.End)
             {
-                var nextMidnight = new DateTimeOffset(segmentStart.Date.AddDays(1), segmentStart.Offset);
+                var date = DateOnly.FromDateTime(
+                    TimeZoneInfo.ConvertTime(segmentStart, CampusZone).DateTime);
+                var nextMidnight = CampusTime.At(date.AddDays(1), 0);
                 var segmentEnd = requested.End < nextMidnight ? requested.End : nextMidnight;
-                var dayStart = new DateTimeOffset(segmentStart.Date.AddHours(8), segmentStart.Offset);
-                var dayEnd = new DateTimeOffset(segmentStart.Date.AddHours(18), segmentStart.Offset);
+                var dayStart = CampusTime.At(date, 8);
+                var dayEnd = CampusTime.At(date, 18);
                 var windowStart = segmentStart < dayStart ? segmentStart : dayStart;
                 var windowEnd = segmentEnd > dayEnd ? segmentEnd : dayEnd;
-                var date = DateOnly.FromDateTime(segmentStart.Date);
                 if (byDate.TryGetValue(date, out var existing))
                 {
                     byDate[date] = (
@@ -506,6 +515,15 @@ public static class AllocationPlanner
             }
         }
         return byDate.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToArray();
+    }
+
+    private static TimeZoneInfo FindCampusZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById(CampusTime.ZoneName); }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
     }
 
     private static long MergedMinutes(

@@ -28,8 +28,8 @@ async function request(path, options = {}) {
     let detail = '';
     if (contentType.includes('application/json')) {
       const body = await response.json().catch(() => ({}));
-      detail = body.detail || body.message || body.title || body.error || '';
-      if (!detail && body.errors) detail = Object.values(body.errors).flat().join(' ');
+      detail = body.error || (body.errors ? Object.values(body.errors).flat().join(' ') : '')
+        || body.detail || body.message || body.title || '';
     } else {
       detail = (await response.text().catch(() => '')).slice(0, 250);
     }
@@ -42,13 +42,14 @@ async function request(path, options = {}) {
 
 export const api = {
   resources: (filters = {}) => request(`/resources${queryString(filters)}`),
-  availability: (id, start, end) => request(`/resources/${encodeURIComponent(id)}/availability${queryString({ start, end })}`),
+  availability: (id, start, end, excludeId) => request(`/resources/${encodeURIComponent(id)}/availability${queryString({ start, end, excludeId })}`),
   reservations: (from, to) => request(`/reservations${queryString({ from, to })}`),
   createReservation: (body) => request('/reservations', { method: 'POST', body: JSON.stringify(body) }),
   updateReservation: (id, body) => request(`/reservations/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   cancelReservation: (id) => request(`/reservations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   naturalSearch: (prompt) => request('/search/natural', { method: 'POST', body: JSON.stringify({ prompt }) }),
   utilization: (from, to) => request(`/stats/utilization${queryString({ from, to })}`),
+  forecast: (days = 14) => request(`/stats/forecast${queryString({ days })}`),
   allocationSample: () => request('/allocations/sample'),
   solveAllocation: (events) => request('/allocations/solve', { method: 'POST', body: JSON.stringify({ events }) }),
 };

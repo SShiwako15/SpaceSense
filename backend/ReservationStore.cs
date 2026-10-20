@@ -96,8 +96,9 @@ public sealed class ReservationStore
 
     private static List<Reservation> SeedReservations()
     {
-        var date = CampusTime.Today.AddDays(1);
-        return new List<Reservation>
+        var today = CampusTime.Today;
+        var date = today.AddDays(1);
+        var reservations = new List<Reservation>
         {
             Seed("seminar", "Intro to Data Science", "Dr. Morgan Lee", date, 10, 12, 27),
             Seed("study-a", "Graduate study group", "Maya Chen", date, 14, 16, 6),
@@ -105,11 +106,48 @@ public sealed class ReservationStore
             Seed("lecture-a", "Campus research forum", "Research Office", date.AddDays(2), 9, 11, 75),
             Seed("studio", "Design workshop", "Alex Rivera", date.AddDays(3), 15, 17, 18)
         };
+
+        // Eight completed weeks give the demo a repeatable weekday demand pattern.
+        // Each room appears at most once per day, so these reservations never overlap.
+        for (var offset = -56; offset < 0; offset++)
+        {
+            var day = today.AddDays(offset);
+            if (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) continue;
+
+            var week = (offset + 56) / 7;
+            reservations.Add(History("class-201", "Applied Mathematics", "Academic Scheduling",
+                day, 9, 11, 26 + week % 5));
+            reservations.Add(History("study-a", "Student study session", "Student Groups",
+                day, 15, 17, 4 + week % 4));
+
+            if (day.DayOfWeek is DayOfWeek.Monday or DayOfWeek.Wednesday or DayOfWeek.Friday)
+                reservations.Add(History("seminar", "Faculty seminar", "Academic Scheduling",
+                    day, 12, 14, 18 + week % 6));
+            if (day.DayOfWeek is DayOfWeek.Tuesday or DayOfWeek.Thursday)
+                reservations.Add(History("lab-east", "Programming laboratory", "Computer Science",
+                    day, 13, 16, 19 + week % 7));
+            if (day.DayOfWeek is DayOfWeek.Monday or DayOfWeek.Thursday)
+                reservations.Add(History("lecture-b", "Campus lecture", "Academic Scheduling",
+                    day, 10, 12, 52 + week % 9));
+            if (day.DayOfWeek is DayOfWeek.Wednesday or DayOfWeek.Friday)
+                reservations.Add(History("studio", "Collaborative workshop", "Student Groups",
+                    day, 14, 16, 12 + week % 7));
+            if (day.DayOfWeek is DayOfWeek.Tuesday)
+                reservations.Add(History("lab-maker", "Maker skills workshop", "Innovation Center",
+                    day, 9, 11, 10 + week % 6));
+        }
+
+        return reservations.OrderBy(r => r.Start).ToList();
     }
 
     private static Reservation Seed(string resourceId, string title, string organizer,
         DateOnly date, int startHour, int endHour, int attendees) =>
         new(Guid.NewGuid().ToString("N"), resourceId, title, organizer,
+            CampusTime.At(date, startHour), CampusTime.At(date, endHour), attendees, "confirmed");
+
+    private static Reservation History(string resourceId, string title, string organizer,
+        DateOnly date, int startHour, int endHour, int attendees) =>
+        new($"history-{date:yyyyMMdd}-{resourceId}", resourceId, title, organizer,
             CampusTime.At(date, startHour), CampusTime.At(date, endHour), attendees, "confirmed");
 }
 

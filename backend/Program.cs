@@ -27,7 +27,11 @@ app.MapGet("/api/resources/{id}/availability", (string id, HttpRequest request, 
     if (ResourceCatalog.Find(id) is not { } resource) return Results.NotFound();
     if (!ApiQueries.TryWindow(request, "start", "end", true, out var start, out var end, out var error))
         return Results.BadRequest(new { error });
-    var conflicts = store.Conflicts(resource.Id, start!.Value, end!.Value);
+    if (end!.Value - start!.Value > ApiQueries.MaxReservationDuration)
+        return Results.BadRequest(new { error = "Reservations cannot exceed 12 hours." });
+    var excludeId = request.Query["excludeId"].ToString();
+    var conflicts = store.Conflicts(resource.Id, start.Value, end.Value,
+        string.IsNullOrWhiteSpace(excludeId) ? null : excludeId);
     return Results.Ok(new { resourceId = resource.Id, available = conflicts.Count == 0, conflicts });
 });
 
@@ -78,6 +82,8 @@ app.MapPost("/api/search/natural", async (NaturalSearchInput input, ReservationS
     var llmInterpretation = await OpenAiBookingExtractor.TryInterpretAsync(
         input.Prompt, localInterpretation, cancellationToken);
     var interpretation = llmInterpretation ?? localInterpretation;
+    if (interpretation.Start.HasValue && interpretation.End!.Value - interpretation.Start.Value > ApiQueries.MaxReservationDuration)
+        return Results.BadRequest(new { error = "Reservations cannot exceed 12 hours." });
     var filters = new ResourceFilters(interpretation.Query, interpretation.Type,
         interpretation.MinCapacity, interpretation.Features, interpretation.Accessible,
         interpretation.Start, interpretation.End);
@@ -122,6 +128,8 @@ app.MapGet("/api/stats/utilization", (HttpRequest request, ReservationStore stor
     });
 });
 
+DemandForecast.Map(app);
+
 app.MapGet("/api/allocations/sample", () =>
 {
     var firstDay = CampusTime.Today.AddDays(1);
@@ -145,12 +153,19 @@ namespace SpaceSense.Api
 
     internal static class ApiQueries
     {
+        public static readonly TimeSpan MaxReservationDuration = TimeSpan.FromHours(12);
+
         public static bool TryFilters(HttpRequest request, out ResourceFilters? filters, out string? error)
         {
             filters = null;
             error = null;
             if (!TryWindow(request, "start", "end", false, out var start, out var end, out error))
                 return false;
+            if (start.HasValue && end!.Value - start.Value > MaxReservationDuration)
+            {
+                error = "Reservations cannot exceed 12 hours.";
+                return false;
+            }
 
             int? capacity = null;
             if (request.Query.TryGetValue("minCapacity", out var capacityRaw))
@@ -241,7 +256,7 @@ namespace SpaceSense.Api
                 errors["organizer"] = ["Organizer is required and must be 120 characters or fewer."];
             if (input.Start == default || input.End <= input.Start)
                 errors["end"] = ["End time must be after start time."];
-            else if ((input.End - input.Start).TotalHours > 12)
+            else if (input.End - input.Start > MaxReservationDuration)
                 errors["end"] = ["Reservations cannot exceed 12 hours."];
             if (input.Attendees < 1 || (resource is not null && input.Attendees > resource.Capacity))
                 errors["attendees"] = ["Attendees must be between 1 and the resource capacity."];
