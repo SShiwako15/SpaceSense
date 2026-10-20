@@ -42,7 +42,7 @@ public static class DemandForecast
                 return Results.BadRequest(new { error = "days must be between 1 and 30." });
 
             var days = rawDays.Length == 0 ? 14 : int.Parse(rawDays);
-            return Results.Ok(Build(ResourceCatalog.All, store.List(), CampusTime.Today, days));
+            return Results.Ok(Build(ResourceCatalog.All, store.List(), CampusTime.Today, days, store.MaintenanceList()));
         });
     }
 
@@ -50,7 +50,8 @@ public static class DemandForecast
         IEnumerable<Resource> resources,
         IEnumerable<Reservation> reservations,
         DateOnly today,
-        int days = 14)
+        int days = 14,
+        IEnumerable<MaintenanceWindow>? maintenanceWindows = null)
     {
         ArgumentNullException.ThrowIfNull(resources);
         ArgumentNullException.ThrowIfNull(reservations);
@@ -83,6 +84,12 @@ public static class DemandForecast
             .Where(sample => sample.Date >= today && sample.Date < today.AddDays(days))
             .GroupBy(sample => (sample.Date, sample.Type))
             .ToDictionary(group => group.Key, group => group.Sum(sample => sample.Hours));
+        var maintenanceHours = (maintenanceWindows ?? Array.Empty<MaintenanceWindow>())
+            .Where(window => rooms.ContainsKey(window.ResourceId) && window.End > window.Start)
+            .SelectMany(window => SplitWindow(window.Start, window.End, rooms[window.ResourceId].Type))
+            .Where(sample => sample.Date >= today && sample.Date < today.AddDays(days))
+            .GroupBy(sample => (sample.Date, sample.Type))
+            .ToDictionary(group => group.Key, group => group.Sum(sample => sample.Hours));
 
         var totalsByType = types.Keys.ToDictionary(type => type,
             type => new TypeTotals(), StringComparer.OrdinalIgnoreCase);
@@ -98,7 +105,9 @@ public static class DemandForecast
 
             foreach (var (type, count) in types)
             {
-                var capacity = count * hoursInDay;
+                var grossCapacity = count * hoursInDay;
+                var capacity = Math.Max(0, grossCapacity -
+                    Math.Min(grossCapacity, maintenanceHours.GetValueOrDefault((date, type))));
                 var booked = Math.Min(capacity, futureBookings.GetValueOrDefault((date, type)));
                 var samples = Enumerable.Range(0, 7 * HistoryWeeks)
                     .Select(back => today.AddDays(-1 - back))
@@ -150,13 +159,16 @@ public static class DemandForecast
     }
 
     private static IEnumerable<BookingSample> SplitBooking(Reservation reservation, string type)
+        => SplitWindow(reservation.Start, reservation.End, type);
+
+    private static IEnumerable<BookingSample> SplitWindow(DateTimeOffset start, DateTimeOffset end, string type)
     {
-        var cursor = reservation.Start;
-        while (cursor < reservation.End)
+        var cursor = start;
+        while (cursor < end)
         {
             var date = CampusDate(cursor);
             var nextMidnight = CampusTime.At(date.AddDays(1), 0);
-            var segmentEnd = nextMidnight < reservation.End ? nextMidnight : reservation.End;
+            var segmentEnd = nextMidnight < end ? nextMidnight : end;
             yield return new BookingSample(date, type, (segmentEnd - cursor).TotalHours);
             cursor = segmentEnd;
         }

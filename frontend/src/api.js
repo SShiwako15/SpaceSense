@@ -55,6 +55,11 @@ export const api = {
     ),
   reservations: (from, to, status, seriesId) =>
     request(`/reservations${queryString({ from, to, status, seriesId })}`),
+  maintenance: (resourceId) => request(`/maintenance${queryString({ resourceId })}`),
+  createMaintenance: (body) =>
+    request("/maintenance", { method: "POST", body: JSON.stringify(body) }),
+  deleteMaintenance: (id) =>
+    request(`/maintenance/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createReservation: (body) =>
     request("/reservations", { method: "POST", body: JSON.stringify(body) }),
   updateReservation: (id, body) =>

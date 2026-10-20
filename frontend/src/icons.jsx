@@ -92,6 +92,7 @@ export const Pencil = icon(
 );
 export const Plus = icon(path("M12 5v14M5 12h14"));
 export const Search = icon(circle(11, 11, 7), path("m16 16 5 5"));
+export const Star = icon(path("m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z"));
 export const Send = icon(path("m22 2-7 20-4-9-9-4zM22 2 11 13"));
 export const ShieldCheck = icon(
   path("M12 2 4 5v6c0 5 3 9 8 11 5-2 8-6 8-11V5z"),

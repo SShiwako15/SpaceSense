@@ -2,11 +2,13 @@ namespace SpaceSense.Api;
 
 public static class ResourceSearch
 {
-    public static IReadOnlyList<Resource> Find(ResourceFilters filters, IEnumerable<Reservation> reservations)
+    public static IReadOnlyList<Resource> Find(ResourceFilters filters, IEnumerable<Reservation> reservations,
+        IEnumerable<MaintenanceWindow>? maintenanceWindows = null)
     {
         var requiredFeatures = filters.Features.Where(f => !string.IsNullOrWhiteSpace(f))
             .Select(f => f.Trim()).ToArray();
         var bookings = reservations.Where(r => r.Status is "confirmed" or "pending").ToArray();
+        var maintenance = (maintenanceWindows ?? Array.Empty<MaintenanceWindow>()).ToArray();
 
         return ResourceCatalog.All.Where(resource =>
             MatchesText(resource, filters.Query) &&
@@ -15,8 +17,10 @@ public static class ResourceSearch
             (!filters.Accessible.HasValue || resource.Accessible == filters.Accessible.Value) &&
             requiredFeatures.All(f => resource.Features.Contains(f, StringComparer.OrdinalIgnoreCase)) &&
             (!filters.Start.HasValue || !filters.End.HasValue ||
-                !bookings.Any(r => r.ResourceId.Equals(resource.Id, StringComparison.OrdinalIgnoreCase) &&
-                    r.Start < filters.End.Value && filters.Start.Value < r.End))
+                (!bookings.Any(r => r.ResourceId.Equals(resource.Id, StringComparison.OrdinalIgnoreCase) &&
+                    r.Start < filters.End.Value && filters.Start.Value < r.End) &&
+                 !maintenance.Any(window => window.ResourceId.Equals(resource.Id, StringComparison.OrdinalIgnoreCase) &&
+                    window.Start < filters.End.Value && filters.Start.Value < window.End)))
         ).ToArray();
     }
 

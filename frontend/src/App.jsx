@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Star,
   Trash2,
   Users,
   WandSparkles,
@@ -43,6 +44,7 @@ import {
   initialSearchTime,
   searchWindow,
   toApiTime,
+  toDateInput,
   toLocalInput,
 } from "./dates";
 
@@ -56,6 +58,24 @@ const examplePrompts = [
   "Find a room for 20 students with a projector next Tuesday afternoon",
   "I need an accessible study space for 8 people tomorrow morning",
 ];
+
+function addCalendarDays(value, offset) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10);
+}
+
+function mondayWeek(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return [];
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+  return Array.from({ length: 7 }, (_, index) => {
+    const current = new Date(date);
+    current.setUTCDate(date.getUTCDate() + index);
+    return current.toISOString().slice(0, 10);
+  });
+}
 
 import { EmptyState, PanelTitle, ResourceCard, resourceIcon, formatPercent } from './components/shared';
 import { BookingModal } from './components/BookingModal';
@@ -71,6 +91,21 @@ function App() {
     accessible: false,
     ...initialSearchTime(),
   }));
+  const [favoriteIds, setFavoriteIds] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("spacesense-favorites") || "[]");
+      return new Set(Array.isArray(saved) ? saved.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [bookingFilters, setBookingFilters] = useState({ query: "", status: "active", type: "", from: "", to: "" });
+  const [bookingView, setBookingView] = useState("list");
+  const [selectedWeekDate, setSelectedWeekDate] = useState(() => toDateInput(new Date()));
+  const [weekReservations, setWeekReservations] = useState([]);
+  const [weekLoading, setWeekLoading] = useState(false);
+  const [weekError, setWeekError] = useState("");
   const [appliedFilters, setAppliedFilters] = useState(null);
   const searchRequestId = useRef(0);
   const [resources, setResources] = useState([]);
@@ -83,6 +118,13 @@ function App() {
   const [pendingApprovals, setPendingApprovals] = useState(null);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalError, setApprovalError] = useState("");
+  const [maintenanceWindows, setMaintenanceWindows] = useState(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [maintenanceError, setMaintenanceError] = useState("");
+  const [maintenanceForm, setMaintenanceForm] = useState(() => {
+    const window = initialSearchTime();
+    return { resourceId: "", start: `${window.date}T${window.startTime}`, end: `${window.date}T${window.endTime}`, reason: "" };
+  });
   const [searchLoading, setSearchLoading] = useState(true);
   const [searchError, setSearchError] = useState("");
   const [dataError, setDataError] = useState("");
@@ -141,7 +183,26 @@ function App() {
   const upcomingCount = reservations.filter(
     (reservation) => new Date(reservation.end) >= new Date() && reservation.status !== "rejected",
   ).length;
-  const visibleReservations = reservations.filter((reservation) => reservation.status !== "rejected");
+  const visibleReservations = reservations;
+  const displayedResources = favoritesOnly
+    ? resources.filter((resource) => favoriteIds.has(String(resource.id)))
+    : resources;
+  const weekDates = useMemo(() => mondayWeek(selectedWeekDate), [selectedWeekDate]);
+  const matchesBookingFilters = (reservation) => {
+    const resource = byId.get(String(reservation.resourceId));
+    const query = bookingFilters.query.trim().toLowerCase();
+    const date = toLocalInput(reservation.start).slice(0, 10);
+    return (bookingFilters.status === "all" ||
+      (bookingFilters.status === "active" ? reservation.status !== "rejected" : reservation.status === bookingFilters.status)) &&
+      (!bookingFilters.type || resource?.type === bookingFilters.type) &&
+      (!bookingFilters.from || date >= bookingFilters.from) &&
+      (!bookingFilters.to || date <= bookingFilters.to) &&
+      (!query || [reservation.title, reservation.organizer, resource?.name, resource?.building]
+        .some((value) => String(value || "").toLowerCase().includes(query)));
+  };
+  const filteredReservations = visibleReservations.filter(matchesBookingFilters);
+  const filteredWeekReservations = weekReservations.filter(matchesBookingFilters);
+  const exportReservations = bookingView === "week" ? filteredWeekReservations : filteredReservations;
 
   const loadReservations = useCallback(async () => {
     const range = dateRange(30);
@@ -163,6 +224,28 @@ function App() {
     }
   }, []);
 
+  const loadWeekReservations = useCallback(async (startDate, endDate) => {
+    setWeekLoading(true);
+    setWeekError("");
+    try {
+      const result = await api.reservations(
+        toApiTime(`${startDate}T00:00`),
+        toApiTime(`${endDate}T00:00`),
+      );
+      setWeekReservations(Array.isArray(result) ? result : []);
+    } catch (reason) {
+      setWeekError(reason.message);
+      setWeekReservations([]);
+    } finally {
+      setWeekLoading(false);
+    }
+  }, []);
+
+  const refreshWeekReservations = useCallback(() => {
+    if (bookingView !== "week" || weekDates.length !== 7) return Promise.resolve();
+    return loadWeekReservations(weekDates[0], addCalendarDays(weekDates[6], 1));
+  }, [bookingView, weekDates, loadWeekReservations]);
+
   const loadApprovals = useCallback(async () => {
     setApprovalLoading(true);
     setApprovalError("");
@@ -173,6 +256,19 @@ function App() {
       setApprovalError(reason.message);
     } finally {
       setApprovalLoading(false);
+    }
+  }, []);
+
+  const loadMaintenance = useCallback(async () => {
+    setMaintenanceLoading(true);
+    setMaintenanceError("");
+    try {
+      const data = await api.maintenance();
+      setMaintenanceWindows(Array.isArray(data) ? data : []);
+    } catch (reason) {
+      setMaintenanceError(reason.message);
+    } finally {
+      setMaintenanceLoading(false);
     }
   }, []);
 
@@ -261,13 +357,24 @@ function App() {
     if (!utilization) loadStats();
     if (!forecast) loadForecast();
     if (!pendingApprovals) loadApprovals();
-  }, [tab, utilization, forecast, pendingApprovals, loadStats, loadForecast, loadApprovals]);
+    if (!maintenanceWindows) loadMaintenance();
+  }, [tab, utilization, forecast, pendingApprovals, maintenanceWindows, loadStats, loadForecast, loadApprovals, loadMaintenance]);
 
   useEffect(() => {
     if (!toast) return undefined;
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    try { localStorage.setItem("spacesense-favorites", JSON.stringify([...favoriteIds])); }
+    catch { /* Favorites remain available for this session if storage is disabled. */ }
+  }, [favoriteIds]);
+
+  useEffect(() => {
+    if (tab !== "bookings" || bookingView !== "week" || weekDates.length !== 7) return;
+    loadWeekReservations(weekDates[0], addCalendarDays(weekDates[6], 1));
+  }, [tab, bookingView, weekDates, loadWeekReservations]);
 
   function updateFilter(field, value) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -361,6 +468,48 @@ function App() {
     }
   }
 
+  function toggleFavorite(resourceId) {
+    const id = String(resourceId);
+    setFavoriteIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exportReservationsCsv() {
+    const rows = [
+      ["Date", "Start", "End", "Title", "Resource", "Building", "Organizer", "Attendees or units", "Status", "Series ID"],
+      ...exportReservations.map((reservation) => {
+        const resource = byId.get(String(reservation.resourceId));
+        return [
+          toLocalInput(reservation.start).slice(0, 10),
+          formatTime(reservation.start),
+          formatTime(reservation.end),
+          reservation.title,
+          resource?.name || reservation.resourceId,
+          resource?.building || "",
+          reservation.organizer,
+          reservation.attendees,
+          reservation.status,
+          reservation.seriesId || "",
+        ];
+      }),
+    ];
+    const csv = rows.map((row) => row.map((value) => {
+      let text = String(value ?? "");
+      if (/^[\t\r ]*[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replaceAll('"', '""')}"`;
+    }).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `spacesense-reservations-${toDateInput(new Date())}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   async function markAllNotificationsRead() {
     try {
       await api.markAllNotificationsRead();
@@ -378,6 +527,7 @@ function App() {
     await Promise.allSettled([
       runSearch(resultsFilters),
       loadReservations(),
+      refreshWeekReservations(),
       loadNotifications(),
       loadApprovals(),
       loadStats(),
@@ -399,6 +549,7 @@ function App() {
       await Promise.allSettled([
         runSearch(resultsFilters),
         loadReservations(),
+        refreshWeekReservations(),
         loadNotifications(),
         loadApprovals(),
         loadStats(),
@@ -419,12 +570,54 @@ function App() {
         loadApprovals(),
         loadNotifications(),
         loadReservations(),
+        refreshWeekReservations(),
         runSearch(resultsFilters),
         loadStats(),
         loadForecast(),
       ]);
     } catch (reason) {
       setApprovalError(reason.message);
+    }
+  }
+
+  async function createMaintenanceWindow(event) {
+    event.preventDefault();
+    const start = toApiTime(maintenanceForm.start);
+    const end = toApiTime(maintenanceForm.end);
+    if (!start || !end || new Date(end) <= new Date(start)) {
+      setMaintenanceError("Choose a valid end time after the start time.");
+      return;
+    }
+    try {
+      await api.createMaintenance({
+        resourceId: maintenanceForm.resourceId,
+        start,
+        end,
+        reason: maintenanceForm.reason.trim(),
+      });
+      setMaintenanceForm((current) => ({ ...current, reason: "" }));
+      setToast("Maintenance window scheduled.");
+      await Promise.allSettled([
+        loadMaintenance(),
+        runSearch(resultsFilters),
+        refreshWeekReservations(),
+      ]);
+    } catch (reason) {
+      setMaintenanceError(reason.message);
+    }
+  }
+
+  async function removeMaintenanceWindow(window) {
+    try {
+      await api.deleteMaintenance(window.id);
+      setToast("Maintenance window removed.");
+      await Promise.allSettled([
+        loadMaintenance(),
+        runSearch(resultsFilters),
+        refreshWeekReservations(),
+      ]);
+    } catch (reason) {
+      setMaintenanceError(reason.message);
     }
   }
 
@@ -438,6 +631,7 @@ function App() {
       await Promise.allSettled([
         runSearch(resultsFilters),
         loadReservations(),
+        refreshWeekReservations(),
         loadNotifications(),
         loadApprovals(),
         loadStats(),
@@ -940,10 +1134,17 @@ function App() {
                     : "Choose a valid time to see available spaces."
                 }
                 action={
-                  <span className="text-[11px] text-muted">
-                    {resources.length}{" "}
-                    {resources.length === 1 ? "space" : "spaces"} found
-                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-[9px] font-bold ${favoritesOnly ? "border-[#e8c99f] bg-[#fff8ed] text-[#9d6d31]" : "border-line bg-white text-muted"}`}
+                      onClick={() => setFavoritesOnly((value) => !value)}
+                      aria-pressed={favoritesOnly}
+                    >
+                      <Star size={13} fill={favoritesOnly ? "currentColor" : "none"} /> Saved spaces ({favoriteIds.size})
+                    </button>
+                    <span className="text-[11px] text-muted">{displayedResources.length} {displayedResources.length === 1 ? "space" : "spaces"} found</span>
+                  </div>
                 }
               />
               {interpretation && (
@@ -985,14 +1186,16 @@ function App() {
                     </div>
                   ))}
                 </div>
-              ) : resources.length ? (
+              ) : displayedResources.length ? (
                 <div className="mt-4 grid grid-cols-3 gap-4 max-[1100px]:grid-cols-2 max-[600px]:grid-cols-1">
-                  {resources.map((resource) => (
+                  {displayedResources.map((resource) => (
                     <ResourceCard
                       key={resource.id}
                       resource={resource}
                       windowLabel={windowLabel}
                       onBook={(selected) => setModal({ resource: selected })}
+                      isFavorite={favoriteIds.has(String(resource.id))}
+                      onToggleFavorite={toggleFavorite}
                     />
                   ))}
                 </div>
@@ -1000,8 +1203,8 @@ function App() {
                 !searchError && (
                   <EmptyState
                     icon={Search}
-                    title="No spaces match this search"
-                    description="Try a different time, a smaller group, or fewer feature filters."
+                    title={favoritesOnly && resources.length ? "No saved spaces match this search" : "No spaces match this search"}
+                    description={favoritesOnly && resources.length ? "Save a resource with the star button, or turn off the saved spaces filter." : "Try a different time, a smaller group, or fewer feature filters."}
                     action={
                       <button
                         className="inline-flex items-center justify-center gap-2 rounded-lg border-0 px-4 py-2.5 text-[11px] font-extrabold border border-[#cbdcd5] bg-white text-teal hover:bg-[#edf7f2]"
@@ -1064,28 +1267,102 @@ function App() {
                 </span>
               </div>
             </div>
+            <section className="mb-5 rounded-[13px] border border-line bg-white p-4">
+              <div className="grid grid-cols-[minmax(180px,1.4fr)_repeat(4,minmax(120px,1fr))] gap-3 max-[900px]:grid-cols-2 max-[540px]:grid-cols-1">
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Search reservations</span>
+                  <input className="rounded-md border border-line px-2.5 py-2 text-[10px]" value={bookingFilters.query} onChange={(event) => setBookingFilters((value) => ({ ...value, query: event.target.value }))} placeholder="Title, organizer, or room" />
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Status</span>
+                  <select className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={bookingFilters.status} onChange={(event) => setBookingFilters((value) => ({ ...value, status: event.target.value }))}>
+                    <option value="active">Active bookings</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="rejected">Declined</option><option value="all">All statuses</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Resource type</span>
+                  <select className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={bookingFilters.type} onChange={(event) => setBookingFilters((value) => ({ ...value, type: event.target.value }))}>
+                    <option value="">All types</option>{typeOptions.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>From date</span>
+                  <input className="rounded-md border border-line px-2.5 py-2 text-[10px]" type="date" value={bookingFilters.from} onChange={(event) => setBookingFilters((value) => ({ ...value, from: event.target.value }))} />
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Through date</span>
+                  <input className="rounded-md border border-line px-2.5 py-2 text-[10px]" type="date" value={bookingFilters.to} onChange={(event) => setBookingFilters((value) => ({ ...value, to: event.target.value }))} />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#edf1ef] pt-3">
+                <div className="flex gap-1 rounded-lg bg-[#f2f6f3] p-1" role="group" aria-label="Reservation view">
+                  <button type="button" className={`rounded-md px-3 py-1.5 text-[9px] font-bold ${bookingView === "list" ? "bg-white text-teal shadow-sm" : "text-muted"}`} onClick={() => setBookingView("list")}>List</button>
+                  <button type="button" className={`rounded-md px-3 py-1.5 text-[9px] font-bold ${bookingView === "week" ? "bg-white text-teal shadow-sm" : "text-muted"}`} onClick={() => setBookingView("week")}>Week calendar</button>
+                </div>
+                <div className="flex items-center gap-3 text-[10px] text-muted">
+                  <span>{exportReservations.length} reservations</span>
+                  <button type="button" className="border-0 bg-transparent text-[9px] font-bold text-muted underline" onClick={() => setBookingFilters({ query: "", status: "active", type: "", from: "", to: "" })}>Clear filters</button>
+                  <button type="button" className="rounded-md border-0 bg-[#1d8374] px-3 py-2 text-[9px] font-bold text-white disabled:opacity-50" onClick={exportReservationsCsv} disabled={!exportReservations.length}>Export CSV</button>
+                </div>
+              </div>
+            </section>
             <section className="rounded-[15px] border border-line bg-white p-6">
               <PanelTitle
                 eyebrow="CAMPUS CALENDAR"
-                title="Upcoming reservations"
-                description="Reservations across the campus for the next 30 days."
+                title={bookingView === "week" ? "Weekly reservation calendar" : "Upcoming reservations"}
+                description={bookingView === "week" ? "Select any week to review campus bookings by day." : "Reservations across the campus for the next 30 days."}
                 action={
                   <button
                     type="button"
                     className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-[10px] font-bold text-teal"
-                    onClick={() =>
-                      loadReservations().catch((reason) =>
-                        setDataError(reason.message),
-                      )
-                    }
+                    onClick={() => bookingView === "week"
+                      ? loadWeekReservations(weekDates[0], addCalendarDays(weekDates[6], 1))
+                      : loadReservations().catch((reason) => setDataError(reason.message))}
                   >
                     Refresh <ArrowRight size={15} />
                   </button>
                 }
               />
-              {visibleReservations.length ? (
+              {bookingView === "week" ? (
+                <div>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <button type="button" className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px] font-bold text-teal" onClick={() => setSelectedWeekDate(addCalendarDays(weekDates[0], -7))} aria-label="Previous week">← Previous</button>
+                      <button type="button" className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px] font-bold text-teal" onClick={() => setSelectedWeekDate(addCalendarDays(weekDates[0], 7))} aria-label="Next week">Next →</button>
+                    </div>
+                    <label className="flex items-center gap-2 text-[9px] font-bold text-[#587079]">Choose a date<input className="rounded-md border border-line px-2 py-1.5 text-[10px]" type="date" value={selectedWeekDate} onChange={(event) => { if (event.target.value) setSelectedWeekDate(event.target.value); }} /></label>
+                  </div>
+                  {weekError && <div className="mb-3 rounded-lg bg-[#fff2ec] p-2.5 text-[10px] text-[#b85c45]" role="alert">{weekError}</div>}
+                  {weekLoading ? <p className="py-8 text-center text-xs text-muted" role="status">Loading weekly schedule…</p> : (
+                    <div className="overflow-x-auto rounded-lg border border-line">
+                      <div className="grid min-w-[980px] grid-cols-7 divide-x divide-[#e8eeea]">
+                        {weekDates.map((date) => {
+                          const dayReservations = filteredWeekReservations.filter((item) => toLocalInput(item.start).slice(0, 10) === date);
+                          return (
+                            <section key={date} className="min-h-[300px] bg-[#fbfdfb] p-2">
+                              <h3 className="mb-2 border-b border-[#e8eeea] pb-2 text-center text-[10px] font-bold text-ink">{formatDate(`${date}T12:00:00Z`, { weekday: "short", month: "short", day: "numeric" })}</h3>
+                              <div className="grid gap-1.5">
+                                {dayReservations.map((reservation) => {
+                                  const resource = byId.get(String(reservation.resourceId));
+                                  return <button key={reservation.id} type="button" className={`grid gap-1 rounded-md border p-2 text-left ${reservation.status === "pending" ? "border-[#eed9b9] bg-[#fff8ed]" : "border-[#cfe6dc] bg-[#eff8f3]"}`} onClick={() => setModal({ booking: reservation, resource })}>
+                                    <span className="text-[8px] font-bold text-teal">{formatTime(reservation.start)}–{formatTime(reservation.end)}</span>
+                                    <strong className="line-clamp-2 text-[9px] text-ink">{reservation.title}</strong>
+                                    <span className="line-clamp-2 text-[8px] text-muted">{resource?.name || "Campus resource"}</span>
+                                    <span className="text-[8px] font-bold uppercase text-muted">{reservation.status}</span>
+                                  </button>;
+                                })}
+                                {!dayReservations.length && <p className="py-4 text-center text-[8px] text-[#9aabaa]">No bookings</p>}
+                              </div>
+                            </section>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : filteredReservations.length ? (
                 <div className="grid gap-2">
-                  {[...visibleReservations]
+                  {[...filteredReservations]
                     .sort((a, b) => new Date(a.start) - new Date(b.start))
                     .map((reservation) => {
                       const resource = byId.get(String(reservation.resourceId));
@@ -1165,7 +1442,7 @@ function App() {
                 <EmptyState
                   icon={CalendarDays}
                   title="No upcoming reservations"
-                  description="Campus bookings and pending requests will appear here once submitted."
+                  description={visibleReservations.length ? "No reservations match these filters. Adjust or clear your filters to see more." : "Campus bookings and pending requests will appear here once submitted."}
                   action={
                     <button
                       type="button"
@@ -1273,6 +1550,48 @@ function App() {
                     : "—"}
                 </strong>
                 <small>Across the next 7 days</small>
+              </div>
+            </section>
+            <section className="mb-5 rounded-[15px] border border-line bg-white p-6">
+              <PanelTitle
+                eyebrow="RESOURCE RESTRICTIONS"
+                title="Maintenance windows"
+                description="Close a resource temporarily. Search, booking, and allocation checks will respect the closure."
+                action={<button type="button" className="text-[10px] font-bold text-teal" onClick={loadMaintenance} disabled={maintenanceLoading}>{maintenanceLoading ? "Refreshing…" : "Refresh"}</button>}
+              />
+              {maintenanceError && <div className="mb-3 rounded-lg bg-[#fff2ec] p-2.5 text-[10px] text-[#b85c45]" role="alert">{maintenanceError}</div>}
+              <form className="grid grid-cols-2 gap-3 rounded-lg bg-[#f6f9f7] p-4 max-[700px]:grid-cols-1" onSubmit={createMaintenanceWindow}>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Resource</span>
+                  <select className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={maintenanceForm.resourceId} onChange={(event) => setMaintenanceForm((current) => ({ ...current, resourceId: event.target.value }))} required>
+                    <option value="">Choose a resource</option>{allResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.name}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Reason</span>
+                  <input className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" value={maintenanceForm.reason} onChange={(event) => setMaintenanceForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Equipment service, room repair…" maxLength={200} required />
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Starts (Eastern campus time)</span>
+                  <input className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" type="datetime-local" value={maintenanceForm.start} onChange={(event) => setMaintenanceForm((current) => ({ ...current, start: event.target.value }))} required />
+                </label>
+                <label className="grid gap-1 text-[9px] font-bold text-[#587079]">
+                  <span>Ends</span>
+                  <input className="rounded-md border border-line bg-white px-2.5 py-2 text-[10px]" type="datetime-local" value={maintenanceForm.end} onChange={(event) => setMaintenanceForm((current) => ({ ...current, end: event.target.value }))} required />
+                </label>
+                <div className="col-span-full flex flex-wrap items-center justify-between gap-3">
+                  <small className="text-[9px] text-muted">Up to 90 days. New maintenance cannot overlap an active booking.</small>
+                  <button type="submit" className="rounded-md border-0 bg-[#1d8374] px-3 py-2 text-[9px] font-bold text-white" disabled={maintenanceLoading}>Schedule maintenance</button>
+                </div>
+              </form>
+              <div className="mt-4 grid gap-2">
+                {maintenanceWindows?.some((window) => new Date(window.end) >= new Date()) ? maintenanceWindows.filter((window) => new Date(window.end) >= new Date()).map((window) => {
+                  const resource = byId.get(String(window.resourceId));
+                  return <article key={window.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#f0e4d7] bg-[#fffaf4] p-3">
+                    <div className="min-w-0"><strong className="block text-[10px] text-ink">{resource?.name || "Campus resource"} · {window.reason}</strong><span className="text-[9px] text-muted">{formatDateTime(window.start)} – {formatDateTime(window.end)}</span></div>
+                    <button type="button" className="rounded-md border border-line bg-white px-2.5 py-1.5 text-[9px] font-bold text-[#ad654d]" onClick={() => removeMaintenanceWindow(window)}>Remove</button>
+                  </article>;
+                }) : maintenanceLoading ? <p className="py-3 text-center text-[10px] text-muted">Loading maintenance schedule…</p> : <p className="py-3 text-center text-[10px] text-muted">No upcoming maintenance windows.</p>}
               </div>
             </section>
             <section className="mb-5 rounded-[15px] border border-line bg-white p-6">

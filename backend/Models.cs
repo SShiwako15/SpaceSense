@@ -31,6 +31,19 @@ public sealed record ReservationInput(
     int Attendees,
     int RepeatWeeks = 1);
 
+public sealed record MaintenanceWindow(
+    string Id,
+    string ResourceId,
+    DateTimeOffset Start,
+    DateTimeOffset End,
+    string Reason);
+
+public sealed record MaintenanceInput(
+    string? ResourceId,
+    DateTimeOffset Start,
+    DateTimeOffset End,
+    string? Reason);
+
 public sealed record ResourceFilters(
     string? Query,
     string? Type,

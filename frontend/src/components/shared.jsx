@@ -1,4 +1,4 @@
-import { ArrowUpRight, Building2, FlaskConical, Lightbulb, MapPin, MonitorPlay, Search, ShieldCheck, Users } from '../icons.jsx';
+import { ArrowUpRight, Building2, FlaskConical, Lightbulb, MapPin, MonitorPlay, Search, ShieldCheck, Star, Users } from '../icons.jsx';
 export function resourceIcon(type) {
   const value = String(type || "").toLowerCase();
   if (value.includes("lab")) return FlaskConical;
@@ -61,7 +61,7 @@ export function EmptyState({ icon: Icon = Search, title, description, action }) 
   );
 }
 
-export function ResourceCard({ resource, onBook, windowLabel }) {
+export function ResourceCard({ resource, onBook, windowLabel, isFavorite, onToggleFavorite }) {
   const Icon = resourceIcon(resource.type);
   const tone = resourceTone(resource.type);
   const visualTone = {
@@ -126,14 +126,26 @@ export function ResourceCard({ resource, onBook, windowLabel }) {
           <span className="flex items-center gap-1.5 text-[9px] font-extrabold text-[#288475]">
             <span className="inline-block size-1.5 rounded-full bg-[#47af86] shadow-[0_0_0_3px_#def3e9]" /> Available {windowLabel}
           </span>
-          <button
-            className="grid size-[29px] place-items-center rounded-[7px] border-0 bg-[#1e8374] text-white hover:bg-[#136d61]"
-            type="button"
-            onClick={() => onBook(resource)}
-            aria-label={`Book ${resource.name}`}
-          >
-            <ArrowUpRight size={20} />
-          </button>
+          <div className="flex gap-1.5">
+            <button
+              className={`grid size-[29px] place-items-center rounded-[7px] border border-[#dce8e2] bg-white ${isFavorite ? "text-[#d18a42]" : "text-[#94a4a1]"} hover:bg-[#fff8ed]`}
+              type="button"
+              onClick={() => onToggleFavorite(resource.id)}
+              aria-label={`${isFavorite ? "Remove" : "Save"} ${resource.name} ${isFavorite ? "from" : "to"} favorites`}
+              aria-pressed={Boolean(isFavorite)}
+              title={isFavorite ? "Remove from saved spaces" : "Save this space"}
+            >
+              <Star size={16} fill={isFavorite ? "currentColor" : "none"} />
+            </button>
+            <button
+              className="grid size-[29px] place-items-center rounded-[7px] border-0 bg-[#1e8374] text-white hover:bg-[#136d61]"
+              type="button"
+              onClick={() => onBook(resource)}
+              aria-label={`Book ${resource.name}`}
+            >
+              <ArrowUpRight size={20} />
+            </button>
+          </div>
         </div>
       </div>
     </article>

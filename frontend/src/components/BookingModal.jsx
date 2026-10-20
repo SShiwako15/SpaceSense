@@ -87,11 +87,11 @@ export function BookingModal({
 
   useEffect(() => {
     if (!form.resourceId || !validWindow) {
-      setAvailability({ state: "invalid", conflicts: [] });
+      setAvailability({ state: "invalid", conflicts: [], maintenance: [] });
       return undefined;
     }
     let active = true;
-    setAvailability({ state: "checking", conflicts: [] });
+    setAvailability({ state: "checking", conflicts: [], maintenance: [] });
     api
       .availability(form.resourceId, startIso, endIso, booking?.id)
       .then((result) => {
@@ -99,6 +99,7 @@ export function BookingModal({
         setAvailability({
           state: result.available ? "available" : "unavailable",
           conflicts: result.conflicts || [],
+          maintenance: result.maintenanceConflicts || [],
         });
       })
       .catch((reason) => {
@@ -106,6 +107,7 @@ export function BookingModal({
           setAvailability({
             state: "error",
             conflicts: [],
+            maintenance: [],
             message: reason.message,
           });
       });
@@ -303,7 +305,9 @@ export function BookingModal({
                 : availability.state === "checking"
                   ? "Checking live availability…"
                   : availability.state === "unavailable"
-                    ? "This space is booked during the selected time. Choose another time or space."
+                    ? availability.maintenance?.length
+                      ? `This space is under maintenance${availability.maintenance[0].reason ? `: ${availability.maintenance[0].reason}` : ""}. Choose another time or space.`
+                      : "This space is booked during the selected time. Choose another time or space."
                     : availability.state === "invalid"
                       ? "Choose a valid time window of no more than 12 hours."
                       : availability.message ||

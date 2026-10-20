@@ -17,7 +17,7 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok", timeZone = Campu
 app.MapGet("/api/resources", (HttpRequest request, ReservationStore store) =>
 {
     if (!ApiQueries.TryFilters(request, out var filters, out var error)) return Results.BadRequest(new { error });
-    return Results.Ok(ResourceSearch.Find(filters!, store.List()));
+    return Results.Ok(ResourceSearch.Find(filters!, store.List(), store.MaintenanceList()));
 });
 
 app.MapGet("/api/resources/{id}", (string id) =>
@@ -33,7 +33,8 @@ app.MapGet("/api/resources/{id}/availability", (string id, HttpRequest request, 
     var excludeId = request.Query["excludeId"].ToString();
     var conflicts = store.Conflicts(resource.Id, start.Value, end.Value,
         string.IsNullOrWhiteSpace(excludeId) ? null : excludeId);
-    return Results.Ok(new { resourceId = resource.Id, available = conflicts.Count == 0, conflicts });
+    var maintenance = store.MaintenanceConflicts(resource.Id, start.Value, end.Value);
+    return Results.Ok(new { resourceId = resource.Id, available = conflicts.Count == 0 && maintenance.Count == 0, conflicts, maintenanceConflicts = maintenance });
 });
 
 app.MapGet("/api/reservations", (HttpRequest request, ReservationStore store) =>
@@ -61,6 +62,8 @@ app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store
         var series = store.SaveSeries(canonicalInput);
         if (series.Invalid)
             return Results.BadRequest(new { error = "The repeated time window is invalid or exceeds 12 hours after a campus time change." });
+        if (series.MaintenanceConflicts.Count > 0)
+            return Results.Conflict(new { error = "One or more occurrences fall during scheduled maintenance.", maintenanceConflicts = series.MaintenanceConflicts });
         if (series.SeriesId is null)
             return Results.Conflict(new { error = "One or more occurrences are already booked.", conflicts = series.Conflicts });
         var first = series.Reservations[0];
@@ -74,7 +77,11 @@ app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store
     }
     var result = store.Save(canonicalInput);
     if (result.Reservation is null)
+    {
+        if (result.MaintenanceConflicts?.Count > 0)
+            return Results.Conflict(new { error = "The selected time overlaps scheduled maintenance.", maintenanceConflicts = result.MaintenanceConflicts });
         return Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts });
+    }
     var saved = result.Reservation;
     notifications.Add(saved.Status == "pending" ? "approval" : "reservation",
         saved.Status == "pending" ? "Reservation needs approval" : "Reservation confirmed",
@@ -91,7 +98,11 @@ app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, Reserva
     var result = store.Save(canonicalInput, id);
     if (result.NotFound) return Results.NotFound();
     if (result.Reservation is null)
+    {
+        if (result.MaintenanceConflicts?.Count > 0)
+            return Results.Conflict(new { error = "The selected time overlaps scheduled maintenance.", maintenanceConflicts = result.MaintenanceConflicts });
         return Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts });
+    }
     notifications.Add(result.Reservation.Status == "pending" ? "approval" : "reservation",
         result.Reservation.Status == "pending" ? "Reservation update needs approval" : "Reservation updated",
         $"{result.Reservation.Title} was updated for {result.Reservation.Start:MMM d, h:mm tt}.",
@@ -119,11 +130,39 @@ app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, Reservati
     return Results.NoContent();
 });
 
+app.MapGet("/api/maintenance", (HttpRequest request, ReservationStore store) =>
+{
+    var resourceId = request.Query["resourceId"].ToString();
+    var windows = store.MaintenanceList();
+    return Results.Ok(resourceId.Length == 0 ? windows : windows.Where(window =>
+        window.ResourceId.Equals(resourceId, StringComparison.OrdinalIgnoreCase)).ToArray());
+});
+
+app.MapPost("/api/maintenance", (MaintenanceInput input, ReservationStore store) =>
+{
+    var resource = input.ResourceId is null ? null : ResourceCatalog.Find(input.ResourceId);
+    if (resource is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["resourceId"] = ["Choose an existing resource."] });
+    if (input.Start == default || input.End <= input.Start || input.End - input.Start > TimeSpan.FromDays(90))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["end"] = ["Choose a valid maintenance window of up to 90 days."] });
+    if (string.IsNullOrWhiteSpace(input.Reason) || input.Reason.Length > 200)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["reason"] = ["Reason is required and must be 200 characters or fewer."] });
+
+    var result = store.CreateMaintenance(input with { ResourceId = resource.Id });
+    return result.Window is null
+        ? Results.Conflict(new { error = "Maintenance cannot overlap an active reservation.", conflicts = result.Conflicts })
+        : Results.Created($"/api/maintenance/{result.Window.Id}", result.Window);
+});
+
+app.MapDelete("/api/maintenance/{id}", (string id, ReservationStore store) =>
+    store.DeleteMaintenance(id) ? Results.NoContent() : Results.NotFound());
+
 app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store, NotificationStore notifications) =>
 {
     var result = store.Approve(id);
     if (result.NotFound) return Results.NotFound();
     if (result.InvalidState) return Results.Conflict(new { error = "Only pending reservations can be approved." });
+    if (result.MaintenanceConflicts?.Count > 0)
+        return Results.Conflict(new { error = "The reservation overlaps scheduled maintenance.", maintenanceConflicts = result.MaintenanceConflicts });
     if (result.Reservation is null)
         return Results.Conflict(new { error = "The reservation conflicts with another active booking.", conflicts = result.Conflicts });
     notifications.Add("approval", "Reservation approved",
@@ -175,7 +214,7 @@ app.MapPost("/api/search/natural", async (NaturalSearchInput input, ReservationS
     var filters = new ResourceFilters(interpretation.Query, interpretation.Type,
         interpretation.MinCapacity, interpretation.Features, interpretation.Accessible,
         interpretation.Start, interpretation.End);
-    var resources = ResourceSearch.Find(filters, store.List());
+    var resources = ResourceSearch.Find(filters, store.List(), store.MaintenanceList());
     var explanation = interpretation.Start.HasValue
         ? $"Found {resources.Count} available matching resources for {interpretation.Start:MMM d, h:mm tt} to {interpretation.End:h:mm tt} ({CampusTime.ZoneName})."
         : $"Found {resources.Count} matching resources. Add a date and time to check availability.";
@@ -197,9 +236,14 @@ app.MapGet("/api/stats/utilization", (HttpRequest request, ReservationStore stor
     if (to <= from) return Results.BadRequest(new { error = "to must be after from." });
     var availableHours = (to.Value - from.Value).TotalHours;
     var reservations = store.List().Where(r => r.Status == "confirmed").ToArray();
+    var maintenance = store.MaintenanceList();
     var rooms = ResourceCatalog.All.Where(r => r.Type != "equipment").ToArray();
     var utilization = rooms.Select(resource =>
     {
+        var maintenanceHours = maintenance.Where(window => window.ResourceId.Equals(resource.Id, StringComparison.OrdinalIgnoreCase))
+            .Sum(window => Math.Max(0, ((window.End < to.Value ? window.End : to.Value) -
+                (window.Start > from.Value ? window.Start : from.Value)).TotalHours));
+        var resourceAvailableHours = Math.Max(0, availableHours - Math.Min(availableHours, maintenanceHours));
         var reservedHours = reservations.Where(r => r.ResourceId.Equals(resource.Id, StringComparison.OrdinalIgnoreCase))
             .Sum(r => Math.Max(0, ((r.End < to.Value ? r.End : to.Value) -
                 (r.Start > from.Value ? r.Start : from.Value)).TotalHours));
@@ -207,16 +251,17 @@ app.MapGet("/api/stats/utilization", (HttpRequest request, ReservationStore stor
         {
             resourceId = resource.Id,
             reservedHours = Math.Round(reservedHours, 2),
-            availableHours = Math.Round(availableHours, 2),
-            utilizationPercentage = Math.Round(reservedHours / availableHours * 100, 1)
+            availableHours = Math.Round(resourceAvailableHours, 2),
+            utilizationPercentage = resourceAvailableHours <= 0 ? 0 : Math.Round(reservedHours / resourceAvailableHours * 100, 1)
         };
     }).ToArray();
+    var totalAvailableHours = utilization.Sum(resource => resource.availableHours);
     return Results.Ok(new
     {
         from,
         to,
-        overallPercentage = Math.Round(utilization.Sum(r => r.reservedHours) /
-            (availableHours * rooms.Length) * 100, 1),
+        overallPercentage = totalAvailableHours <= 0 ? 0 : Math.Round(utilization.Sum(r => r.reservedHours) /
+            totalAvailableHours * 100, 1),
         resources = utilization
     });
 });
@@ -235,7 +280,10 @@ app.MapPost("/api/allocations/solve", (AllocationSolveInput input, ReservationSt
 {
     if (input.Events is null) return Results.BadRequest(new { error = "events is required." });
     if (input.Events.Length > 200) return Results.BadRequest(new { error = "A plan can contain at most 200 events." });
-    return Results.Ok(AllocationPlanner.Plan(ResourceCatalog.All, store.List(), input.Events));
+    var maintenanceBlocks = store.MaintenanceList().Select(window => new Reservation(
+        window.Id, window.ResourceId, window.Reason, "Campus maintenance",
+        window.Start, window.End, 0, "confirmed"));
+    return Results.Ok(AllocationPlanner.Plan(ResourceCatalog.All, store.List().Concat(maintenanceBlocks), input.Events));
 });
 
 app.Run();
