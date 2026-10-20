@@ -1,37 +1,44 @@
 function queryString(params) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return;
+    if (value === undefined || value === null || value === "") return;
     if (Array.isArray(value)) {
-      if (value.length) query.set(key, value.join(','));
+      if (value.length) query.set(key, value.join(","));
     } else {
       query.set(key, String(value));
     }
   });
   const encoded = query.toString();
-  return encoded ? `?${encoded}` : '';
+  return encoded ? `?${encoded}` : "";
 }
 
 async function request(path, options = {}) {
   let response;
   try {
     response = await fetch(`/api${path}`, {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers: { "Content-Type": "application/json", ...options.headers },
       ...options,
     });
   } catch {
-    throw new Error('Cannot reach the reservation service. Make sure the API is running.');
+    throw new Error(
+      "Cannot reach the reservation service. Make sure the API is running.",
+    );
   }
 
   if (!response.ok) {
-    const contentType = response.headers.get('content-type') || '';
-    let detail = '';
-    if (contentType.includes('application/json')) {
+    const contentType = response.headers.get("content-type") || "";
+    let detail = "";
+    if (contentType.includes("application/json")) {
       const body = await response.json().catch(() => ({}));
-      detail = body.error || (body.errors ? Object.values(body.errors).flat().join(' ') : '')
-        || body.detail || body.message || body.title || '';
+      detail =
+        body.error ||
+        (body.errors ? Object.values(body.errors).flat().join(" ") : "") ||
+        body.detail ||
+        body.message ||
+        body.title ||
+        "";
     } else {
-      detail = (await response.text().catch(() => '')).slice(0, 250);
+      detail = (await response.text().catch(() => "")).slice(0, 250);
     }
     throw new Error(detail || `Request failed (${response.status}).`);
   }
@@ -42,14 +49,33 @@ async function request(path, options = {}) {
 
 export const api = {
   resources: (filters = {}) => request(`/resources${queryString(filters)}`),
-  availability: (id, start, end, excludeId) => request(`/resources/${encodeURIComponent(id)}/availability${queryString({ start, end, excludeId })}`),
-  reservations: (from, to) => request(`/reservations${queryString({ from, to })}`),
-  createReservation: (body) => request('/reservations', { method: 'POST', body: JSON.stringify(body) }),
-  updateReservation: (id, body) => request(`/reservations/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
-  cancelReservation: (id) => request(`/reservations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  naturalSearch: (prompt) => request('/search/natural', { method: 'POST', body: JSON.stringify({ prompt }) }),
-  utilization: (from, to) => request(`/stats/utilization${queryString({ from, to })}`),
+  availability: (id, start, end, excludeId) =>
+    request(
+      `/resources/${encodeURIComponent(id)}/availability${queryString({ start, end, excludeId })}`,
+    ),
+  reservations: (from, to) =>
+    request(`/reservations${queryString({ from, to })}`),
+  createReservation: (body) =>
+    request("/reservations", { method: "POST", body: JSON.stringify(body) }),
+  updateReservation: (id, body) =>
+    request(`/reservations/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  cancelReservation: (id) =>
+    request(`/reservations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  naturalSearch: (prompt) =>
+    request("/search/natural", {
+      method: "POST",
+      body: JSON.stringify({ prompt }),
+    }),
+  utilization: (from, to) =>
+    request(`/stats/utilization${queryString({ from, to })}`),
   forecast: (days = 14) => request(`/stats/forecast${queryString({ days })}`),
-  allocationSample: () => request('/allocations/sample'),
-  solveAllocation: (events) => request('/allocations/solve', { method: 'POST', body: JSON.stringify({ events }) }),
+  allocationSample: () => request("/allocations/sample"),
+  solveAllocation: (events) =>
+    request("/allocations/solve", {
+      method: "POST",
+      body: JSON.stringify({ events }),
+    }),
 };

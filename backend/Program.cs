@@ -91,8 +91,13 @@ app.MapPost("/api/search/natural", async (NaturalSearchInput input, ReservationS
     var explanation = interpretation.Start.HasValue
         ? $"Found {resources.Count} available matching resources for {interpretation.Start:MMM d, h:mm tt} to {interpretation.End:h:mm tt} ({CampusTime.ZoneName})."
         : $"Found {resources.Count} matching resources. Add a date and time to check availability.";
-    return Results.Ok(new { interpretation, resources, explanation,
-        source = llmInterpretation is null ? "rule-based" : "openai+rules" });
+    return Results.Ok(new
+    {
+        interpretation,
+        resources,
+        explanation,
+        source = llmInterpretation is null ? "rule-based" : "openai+rules"
+    });
 });
 
 app.MapGet("/api/stats/utilization", (HttpRequest request, ReservationStore store) =>
