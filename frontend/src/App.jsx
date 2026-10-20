@@ -75,6 +75,9 @@ function App() {
   const [resources, setResources] = useState([]);
   const [allResources, setAllResources] = useState([]);
   const [reservations, setReservations] = useState([]);
+  const [pendingApprovals, setPendingApprovals] = useState(null);
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
   const [searchLoading, setSearchLoading] = useState(true);
   const [searchError, setSearchError] = useState("");
   const [dataError, setDataError] = useState("");
@@ -131,13 +134,27 @@ function App() {
     end: `${resultsFilters.date}T${resultsFilters.endTime}`,
   };
   const upcomingCount = reservations.filter(
-    (reservation) => new Date(reservation.end) >= new Date(),
+    (reservation) => new Date(reservation.end) >= new Date() && reservation.status !== "rejected",
   ).length;
+  const visibleReservations = reservations.filter((reservation) => reservation.status !== "rejected");
 
   const loadReservations = useCallback(async () => {
     const range = dateRange(30);
     const data = await api.reservations(range.from, range.to);
     setReservations(Array.isArray(data) ? data : []);
+  }, []);
+
+  const loadApprovals = useCallback(async () => {
+    setApprovalLoading(true);
+    setApprovalError("");
+    try {
+      const data = await api.reservations(undefined, undefined, "pending");
+      setPendingApprovals(Array.isArray(data) ? data : []);
+    } catch (reason) {
+      setApprovalError(reason.message);
+    } finally {
+      setApprovalLoading(false);
+    }
   }, []);
 
   const loadStats = useCallback(async () => {
@@ -223,7 +240,8 @@ function App() {
     if (tab !== "operations") return;
     if (!utilization) loadStats();
     if (!forecast) loadForecast();
-  }, [tab, utilization, forecast, loadStats, loadForecast]);
+    if (!pendingApprovals) loadApprovals();
+  }, [tab, utilization, forecast, pendingApprovals, loadStats, loadForecast, loadApprovals]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -319,6 +337,7 @@ function App() {
     await Promise.allSettled([
       runSearch(resultsFilters),
       loadReservations(),
+      loadApprovals(),
       loadStats(),
       loadForecast(),
     ]);
@@ -338,11 +357,30 @@ function App() {
       await Promise.allSettled([
         runSearch(resultsFilters),
         loadReservations(),
+        loadApprovals(),
         loadStats(),
         loadForecast(),
       ]);
     } catch (reason) {
       setToast(`Could not cancel reservation: ${reason.message}`);
+    }
+  }
+
+  async function decideApproval(reservation, decision) {
+    try {
+      if (decision === "approve") await api.approveReservation(reservation.id);
+      else await api.rejectReservation(reservation.id);
+      setToast(decision === "approve" ? "Reservation approved." : "Reservation declined.");
+      setAllocation(null);
+      await Promise.allSettled([
+        loadApprovals(),
+        loadReservations(),
+        runSearch(resultsFilters),
+        loadStats(),
+        loadForecast(),
+      ]);
+    } catch (reason) {
+      setApprovalError(reason.message);
     }
   }
 
@@ -970,9 +1008,9 @@ function App() {
                   </button>
                 }
               />
-              {reservations.length ? (
+              {visibleReservations.length ? (
                 <div className="grid gap-2">
-                  {[...reservations]
+                  {[...visibleReservations]
                     .sort((a, b) => new Date(a.start) - new Date(b.start))
                     .map((reservation) => {
                       const resource = byId.get(String(reservation.resourceId));
@@ -991,8 +1029,8 @@ function App() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <h3 className="m-0 min-w-0 truncate font-display text-[14px] font-bold text-ink">{reservation.title}</h3>
-                              <span className="inline-flex items-center gap-1 rounded-md bg-[#e9f6ef] px-1.5 py-1 text-[8px] font-bold text-[#32856f]">
-                                <span /> {reservation.status || "Confirmed"}
+                              <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[8px] font-bold ${reservation.status === "pending" ? "bg-[#fff3e3] text-[#9b7042]" : reservation.status === "rejected" ? "bg-[#fff0e9] text-[#ad654d]" : "bg-[#e9f6ef] text-[#32856f]"}`}>
+                                {reservation.status || "confirmed"}
                               </span>
                             </div>
                             <p>
@@ -1041,7 +1079,7 @@ function App() {
                 <EmptyState
                   icon={CalendarDays}
                   title="No upcoming reservations"
-                  description="Campus bookings will appear here once a reservation is confirmed."
+                  description="Campus bookings and pending requests will appear here once submitted."
                   action={
                     <button
                       type="button"
@@ -1111,6 +1149,61 @@ function App() {
                 </strong>
                 <small>Across the next 7 days</small>
               </div>
+            </section>
+            <section className="mb-5 rounded-[15px] border border-line bg-white p-6">
+              <PanelTitle
+                eyebrow="REVIEW QUEUE"
+                title="Pending approvals"
+                description="Laboratory and equipment requests hold their time until reviewed."
+                action={
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-[10px] font-bold text-teal"
+                    onClick={loadApprovals}
+                    disabled={approvalLoading}
+                  >
+                    {approvalLoading ? "Refreshing…" : "Refresh"} <ArrowRight size={15} />
+                  </button>
+                }
+              />
+              {approvalError && (
+                <div className="mb-3 rounded-lg bg-[#fff2ec] p-2.5 text-[11px] text-[#b85c45]" role="alert">
+                  <CircleAlert size={16} /> {approvalError}
+                </div>
+              )}
+              {pendingApprovals?.length ? (
+                <div className="grid gap-2">
+                  {pendingApprovals.map((reservation) => {
+                    const resource = byId.get(String(reservation.resourceId));
+                    return (
+                      <article key={reservation.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#f0e4d7] bg-[#fffaf4] p-3">
+                        <div className="min-w-0">
+                          <strong className="block truncate text-xs text-ink">{reservation.title}</strong>
+                          <span className="block text-[10px] text-muted">
+                            {resource?.name || "Campus resource"} · {reservation.organizer} · {formatDateTime(reservation.start)} to {formatTime(reservation.end)} · {reservation.attendees} {resource?.type === "equipment" ? "units" : "attendees"}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="rounded-md border-0 bg-[#e8f6ee] px-3 py-2 text-[10px] font-bold text-[#258572] hover:bg-[#d8eee3]"
+                            onClick={() => decideApproval(reservation, "approve")}
+                          >Approve</button>
+                          <button
+                            type="button"
+                            className="rounded-md border-0 bg-[#fff0e9] px-3 py-2 text-[10px] font-bold text-[#ad654d] hover:bg-[#fbe2d7]"
+                            onClick={() => decideApproval(reservation, "reject")}
+                          >Decline</button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : approvalLoading ? (
+                <p className="py-4 text-xs text-muted" role="status">Loading approval requests…</p>
+              ) : (
+                <p className="py-4 text-xs text-muted">No reservations are waiting for approval.</p>
+              )}
             </section>
             <div className="grid grid-cols-[1.4fr_.8fr] gap-5 max-[1000px]:grid-cols-1">
               <section className="rounded-[15px] border border-line bg-white p-6">

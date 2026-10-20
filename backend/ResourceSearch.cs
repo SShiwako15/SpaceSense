@@ -6,7 +6,7 @@ public static class ResourceSearch
     {
         var requiredFeatures = filters.Features.Where(f => !string.IsNullOrWhiteSpace(f))
             .Select(f => f.Trim()).ToArray();
-        var bookings = reservations.Where(r => r.Status == "confirmed").ToArray();
+        var bookings = reservations.Where(r => r.Status is "confirmed" or "pending").ToArray();
 
         return ResourceCatalog.All.Where(resource =>
             MatchesText(resource, filters.Query) &&

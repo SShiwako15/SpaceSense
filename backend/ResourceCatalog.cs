@@ -27,13 +27,13 @@ public static class ResourceCatalog
             "Compact teaching room suited to small classes."),
         new("lab-east", "Innovation Computer Lab", "lab", "Innovation Center", 28,
             ["computers", "projector", "whiteboard"], true,
-            "Computer lab with 28 workstations and accessible desks."),
+            "Computer lab with 28 workstations and accessible desks.", true),
         new("lab-west", "Discovery Computer Lab", "lab", "Innovation Center", 40,
             ["computers", "projector", "whiteboard"], true,
-            "Computer lab for software instruction and group work."),
+            "Computer lab for software instruction and group work.", true),
         new("lab-maker", "Maker Workshop", "lab", "Innovation Center", 20,
             ["whiteboard", "3d printer", "workbenches"], true,
-            "Hands-on workshop with supervised maker equipment."),
+            "Hands-on workshop with supervised maker equipment.", true),
         new("study-a", "Library Study Room A", "study", "Main Library", 8,
             ["whiteboard", "display"], true,
             "Quiet enclosed room for group study."),
@@ -45,10 +45,10 @@ public static class ResourceCatalog
             "Open-plan space for workshops and team projects."),
         new("equipment-projector", "Portable Projector Kit", "equipment", "Media Services", 1,
             ["projector", "portable"], true,
-            "Portable projector with HDMI adapter and carry case."),
+            "Portable projector with HDMI adapter and carry case.", true),
         new("equipment-camera", "Video Camera Kit", "equipment", "Media Services", 1,
             ["camera", "portable"], true,
-            "Camera, tripod, and microphone for class projects.")
+            "Camera, tripod, and microphone for class projects.", true)
     };
 
     public static Resource? Find(string id) =>

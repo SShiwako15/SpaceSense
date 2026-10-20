@@ -8,7 +8,8 @@ public sealed record Resource(
     int Capacity,
     string[] Features,
     bool Accessible,
-    string Description);
+    string Description,
+    bool RequiresApproval = false);
 
 public sealed record Reservation(
     string Id,

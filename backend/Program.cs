@@ -39,7 +39,11 @@ app.MapGet("/api/reservations", (HttpRequest request, ReservationStore store) =>
 {
     if (!ApiQueries.TryWindow(request, "from", "to", false, out var from, out var to, out var error))
         return Results.BadRequest(new { error });
-    var result = store.List().Where(r => (!from.HasValue || r.End > from.Value) &&
+    var status = request.Query["status"].ToString();
+    if (status.Length > 0 && status is not ("pending" or "confirmed" or "rejected"))
+        return Results.BadRequest(new { error = "status must be pending, confirmed, or rejected." });
+    var result = store.List().Where(r => (status.Length == 0 || r.Status == status) &&
+        (!from.HasValue || r.End > from.Value) &&
         (!to.HasValue || r.Start < to.Value)).OrderBy(r => r.Start).ToArray();
     return Results.Ok(result);
 });
@@ -69,6 +73,24 @@ app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, Reserva
 
 app.MapDelete("/api/reservations/{id}", (string id, ReservationStore store) =>
     store.Delete(id) ? Results.NoContent() : Results.NotFound());
+
+app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store) =>
+{
+    var result = store.Approve(id);
+    if (result.NotFound) return Results.NotFound();
+    if (result.InvalidState) return Results.Conflict(new { error = "Only pending reservations can be approved." });
+    if (result.Reservation is null)
+        return Results.Conflict(new { error = "The reservation conflicts with another active booking.", conflicts = result.Conflicts });
+    return Results.Ok(result.Reservation);
+});
+
+app.MapPost("/api/reservations/{id}/reject", (string id, ReservationStore store) =>
+{
+    var result = store.Reject(id);
+    if (result.NotFound) return Results.NotFound();
+    if (result.InvalidState) return Results.Conflict(new { error = "Only pending reservations can be rejected." });
+    return Results.Ok(result.Reservation);
+});
 
 app.MapPost("/api/search/natural", async (NaturalSearchInput input, ReservationStore store,
     CancellationToken cancellationToken) =>

@@ -102,6 +102,9 @@ export function ResourceCard({ resource, onBook, windowLabel }) {
               <ShieldCheck size={14} /> Accessible
             </span>
           )}
+          {resource.requiresApproval && (
+            <span className="rounded bg-[#fff3e3] px-1.5 py-1 text-[8px] tracking-normal text-[#9b7042] normal-case">Approval required</span>
+          )}
         </div>
         <h3 className="mt-[9px] mb-[7px] font-display text-base leading-[1.2] font-bold tracking-[-0.3px] text-[#213b43]">{resource.name}</h3>
         <p className="mt-0 mb-[11px] flex items-center gap-1 text-[10px] text-[#819397]">

@@ -38,7 +38,7 @@ public sealed class ReservationStore
     {
         lock (_gate)
             return _reservations.Where(r => r.ResourceId.Equals(resourceId, StringComparison.OrdinalIgnoreCase) && r.Id != excludeId &&
-                r.Status == "confirmed" && r.Start < end && start < r.End).ToArray();
+                IsBlocking(r.Status) && r.Start < end && start < r.End).ToArray();
     }
 
     // The conflict check and persistence happen under one lock. The saved list is only
@@ -51,12 +51,14 @@ public sealed class ReservationStore
             if (id is not null && existing is null) return new(null, Array.Empty<Reservation>(), true);
 
             var conflicts = _reservations.Where(r => r.ResourceId.Equals(input.ResourceId, StringComparison.OrdinalIgnoreCase) && r.Id != id &&
-                r.Status == "confirmed" && r.Start < input.End && input.Start < r.End).ToArray();
+                IsBlocking(r.Status) && r.Start < input.End && input.Start < r.End).ToArray();
             if (conflicts.Length > 0) return new(null, conflicts, false);
 
+            var requiresApproval = ResourceCatalog.Find(input.ResourceId!)?.RequiresApproval == true;
+            var status = existing?.Status == "pending" || requiresApproval ? "pending" : "confirmed";
             var saved = new Reservation(id ?? Guid.NewGuid().ToString("N"), input.ResourceId!,
                 input.Title!.Trim(), input.Organizer!.Trim(), input.Start, input.End,
-                input.Attendees, "confirmed");
+                input.Attendees, status);
             var next = _reservations.Where(r => r.Id != id).Append(saved)
                 .OrderBy(r => r.Start).ToList();
             Persist(next);
@@ -140,6 +142,43 @@ public sealed class ReservationStore
         return reservations.OrderBy(r => r.Start).ToList();
     }
 
+    public DecisionResult Approve(string id)
+    {
+        lock (_gate)
+        {
+            var existing = _reservations.FirstOrDefault(r => r.Id == id);
+            if (existing is null) return new(null, Array.Empty<Reservation>(), true, false);
+            if (existing.Status != "pending") return new(existing, Array.Empty<Reservation>(), false, true);
+
+            var conflicts = _reservations.Where(r => r.Id != id &&
+                r.ResourceId.Equals(existing.ResourceId, StringComparison.OrdinalIgnoreCase) &&
+                IsBlocking(r.Status) && r.Start < existing.End && existing.Start < r.End).ToArray();
+            if (conflicts.Length > 0) return new(null, conflicts, false, false);
+
+            var approved = existing with { Status = "confirmed" };
+            var next = _reservations.Select(r => r.Id == id ? approved : r).ToList();
+            Persist(next);
+            _reservations = next;
+            return new(approved, Array.Empty<Reservation>(), false, false);
+        }
+    }
+
+    public DecisionResult Reject(string id)
+    {
+        lock (_gate)
+        {
+            var existing = _reservations.FirstOrDefault(r => r.Id == id);
+            if (existing is null) return new(null, Array.Empty<Reservation>(), true, false);
+            if (existing.Status != "pending") return new(existing, Array.Empty<Reservation>(), false, true);
+
+            var rejected = existing with { Status = "rejected" };
+            var next = _reservations.Select(r => r.Id == id ? rejected : r).ToList();
+            Persist(next);
+            _reservations = next;
+            return new(rejected, Array.Empty<Reservation>(), false, false);
+        }
+    }
+
     private static Reservation Seed(string resourceId, string title, string organizer,
         DateOnly date, int startHour, int endHour, int attendees) =>
         new(Guid.NewGuid().ToString("N"), resourceId, title, organizer,
@@ -149,6 +188,10 @@ public sealed class ReservationStore
         DateOnly date, int startHour, int endHour, int attendees) =>
         new($"history-{date:yyyyMMdd}-{resourceId}", resourceId, title, organizer,
             CampusTime.At(date, startHour), CampusTime.At(date, endHour), attendees, "confirmed");
+
+    private static bool IsBlocking(string status) => status is "confirmed" or "pending";
 }
 
 public sealed record SaveResult(Reservation? Reservation, IReadOnlyList<Reservation> Conflicts, bool NotFound);
+public sealed record DecisionResult(Reservation? Reservation, IReadOnlyList<Reservation> Conflicts,
+    bool NotFound, bool InvalidState);

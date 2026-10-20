@@ -45,6 +45,7 @@ export function BookingModal({
   const selectedResource =
     resources.find((item) => String(item.id) === form.resourceId) ||
     modal.resource;
+  const approvalRequired = selectedResource?.requiresApproval === true;
   const startIso = toApiTime(form.start);
   const endIso = toApiTime(form.end);
   const validWindow = Boolean(
@@ -135,10 +136,15 @@ export function BookingModal({
         start: startIso,
         end: endIso,
       };
-      if (booking) await api.updateReservation(booking.id, payload);
-      else await api.createReservation(payload);
+      const saved = booking
+        ? await api.updateReservation(booking.id, payload)
+        : await api.createReservation(payload);
       await onSaved(
-        booking ? "Reservation updated." : "Reservation confirmed.",
+        saved?.status === "pending"
+          ? "Request submitted for staff approval."
+          : booking
+            ? "Reservation updated."
+            : "Reservation confirmed.",
       );
     } catch (reason) {
       setError(reason.message);
@@ -188,6 +194,11 @@ export function BookingModal({
             : "Choose the details for your campus gathering."}{" "}
           All times are Eastern campus time.
         </p>
+        {approvalRequired && (
+          <p className="-mt-3 mb-4 rounded-lg bg-[#fff5e9] px-3 py-2 text-[10px] leading-relaxed text-[#976b3e]">
+            This resource requires staff approval. Your request will hold the time until it is approved or declined.
+          </p>
+        )}
         <form className="grid gap-[15px]" onSubmit={submit}>
           <label className={fieldClass}>
             <span className={labelClass}>Space</span>
@@ -309,7 +320,7 @@ export function BookingModal({
               className={`${buttonClass} bg-[#1d8374] text-white shadow-[0_4px_10px_#18807125] enabled:hover:bg-[#136d61] enabled:hover:shadow-[0_7px_16px_#18807130]`}
               disabled={busy || availability.state !== "available"}
             >
-              {busy ? "Saving…" : booking ? "Save changes" : "Confirm booking"}{" "}
+              {busy ? "Saving…" : approvalRequired ? "Request approval" : booking ? "Save changes" : "Confirm booking"}{" "}
               <ArrowRight size={16} />
             </button>
           </div>
