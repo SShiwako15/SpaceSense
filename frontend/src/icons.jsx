@@ -35,6 +35,10 @@ export const ArrowRight = icon(path("M5 12h14m-7-7 7 7-7 7"));
 export const ArrowUpRight = icon(path("M7 17 17 7M7 7h10v10"));
 export const ArrowDownRight = icon(path("M7 7 17 17M17 7v10H7"));
 export const BarChart3 = icon(path("M3 3v18h18M8 16v-5m5 5V6m5 10v-3"));
+export const Bell = icon(
+  path("M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"),
+  path("M10 21h4"),
+);
 export const Building2 = icon(
   rect(3, 3, 12, 18, 2),
   path("M15 9h6v12H3m5-14h2m-2 4h2m-2 4h2m8-2h1M8 21v-3h3v3"),

@@ -28,12 +28,13 @@ Open `http://localhost:5173`. On macOS or Linux, use `npm` instead of `npm.cmd`.
 - Check availability and create, edit, or cancel reservations. The API rejects overlapping bookings for the same resource, including concurrent requests handled by one API process.
 - Create weekly reservation series with up to 12 occurrences. Every occurrence is checked in one transaction; a conflict leaves the entire series unchanged. Individual occurrences or the full series can be cancelled later.
 - Submit laboratory and equipment bookings for staff approval. Pending requests hold their time; administrators can approve or decline them in the operations view.
+- Review in-app notifications for booking requests, approvals, declines, updates, and cancellations. Notifications can be marked read and are saved locally.
 - Turn a natural-language request into structured search filters, then run those filters through the same reservation search engine.
 - View upcoming reservations and seven-day room utilization.
 - Explore a 14-day room-demand outlook by day and room type. It uses the previous eight matching weekdays, gives recent bookings more weight, adjusts for the academic term, and includes confirmed upcoming bookings as a floor. A fresh installation includes fictional history for the demo.
 - Load 50 fictional, overlapping events and calculate a feasible, priority-aware room plan. The planner checks capacity, required features, accessibility, existing reservations, and overlapping events; it reports unassigned events and seat-use metrics. Its bounded search does not prove global optimality.
 
-Reservation data is saved locally in `backend/Data/reservations.json` and seeded on first launch. Delete that file while the API is stopped to restore the sample reservations.
+Reservation data is saved locally in `backend/Data/reservations.json` and seeded on first launch. Notifications are saved in `backend/Data/notifications.json`. Delete the reservation file while the API is stopped to restore the sample reservations.
 
 ## API overview
 
@@ -49,6 +50,9 @@ Reservation data is saved locally in `backend/Data/reservations.json` and seeded
 | DELETE | `/api/reservations/series/{seriesId}` | Cancel all occurrences in a series |
 | POST | `/api/reservations/{id}/approve` | Approve a pending reservation |
 | POST | `/api/reservations/{id}/reject` | Decline a pending reservation |
+| GET | `/api/notifications` | Notification feed and unread count |
+| POST | `/api/notifications/{id}/read` | Mark one notification as read |
+| POST | `/api/notifications/read-all` | Mark all notifications as read |
 | POST | `/api/search/natural` | Interpret a request and find matching resources |
 | GET | `/api/stats/utilization` | Resource utilization for a time window |
 | GET | `/api/stats/forecast?days=14` | Room-demand outlook for 1–30 days |
@@ -61,4 +65,4 @@ Natural-language search works without credentials through a local parser. To ena
 
 ## MVP boundaries
 
-This is a local demonstration, with a single-process JSON reservation store and no user accounts or role enforcement. The administrator view demonstrates the approval workflow but is not protected by authentication. For a multi-user deployment, move reservations to a transactional database such as PostgreSQL and add identity and authorization. The demand outlook is a transparent seasonal baseline, not a trained machine-learning model; the academic-term dates are approximate. Outbound notifications and a trained forecasting model remain future work.
+This is a local demonstration, with single-process JSON storage and no user accounts or role enforcement. The administrator view demonstrates the approval workflow but is not protected by authentication, and the in-app notification feed is shared by the local demo. For a multi-user deployment, move reservations and notifications to a transactional database such as PostgreSQL, add identity and authorization, and deliver user-specific notifications. The demand outlook is a transparent seasonal baseline, not a trained machine-learning model; the academic-term dates are approximate. Email and push notifications and a trained forecasting model remain future work.

@@ -70,6 +70,10 @@ export const api = {
     request(`/reservations/${encodeURIComponent(id)}/approve`, { method: "POST" }),
   rejectReservation: (id) =>
     request(`/reservations/${encodeURIComponent(id)}/reject`, { method: "POST" }),
+  notifications: () => request("/notifications"),
+  markNotificationRead: (id) =>
+    request(`/notifications/${encodeURIComponent(id)}/read`, { method: "POST" }),
+  markAllNotificationsRead: () => request("/notifications/read-all", { method: "POST" }),
   naturalSearch: (prompt) =>
     request("/search/natural", {
       method: "POST",

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BarChart3,
+  Bell,
   Building2,
   CalendarDays,
   Check,
@@ -75,6 +76,10 @@ function App() {
   const [resources, setResources] = useState([]);
   const [allResources, setAllResources] = useState([]);
   const [reservations, setReservations] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationError, setNotificationError] = useState("");
   const [pendingApprovals, setPendingApprovals] = useState(null);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalError, setApprovalError] = useState("");
@@ -142,6 +147,20 @@ function App() {
     const range = dateRange(30);
     const data = await api.reservations(range.from, range.to);
     setReservations(Array.isArray(data) ? data : []);
+  }, []);
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationLoading(true);
+    setNotificationError("");
+    try {
+      const result = await api.notifications();
+      setNotifications(Array.isArray(result.notifications) ? result.notifications : []);
+      setUnreadNotificationCount(Number(result.unreadCount) || 0);
+    } catch (reason) {
+      setNotificationError(reason.message);
+    } finally {
+      setNotificationLoading(false);
+    }
   }, []);
 
   const loadApprovals = useCallback(async () => {
@@ -232,6 +251,7 @@ function App() {
       .then((data) => setAllResources(Array.isArray(data) ? data : []))
       .catch((reason) => setDataError(reason.message));
     loadReservations().catch((reason) => setDataError(reason.message));
+    loadNotifications();
     // Initial loading uses the first render's filter values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -330,6 +350,27 @@ function App() {
     }
   }
 
+  async function markNotificationRead(notification) {
+    if (notification.isRead) return;
+    try {
+      await api.markNotificationRead(notification.id);
+      setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true } : item));
+      setUnreadNotificationCount((count) => Math.max(0, count - 1));
+    } catch (reason) {
+      setNotificationError(reason.message);
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      await api.markAllNotificationsRead();
+      setNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
+      setUnreadNotificationCount(0);
+    } catch (reason) {
+      setNotificationError(reason.message);
+    }
+  }
+
   async function afterSave(message) {
     setModal(null);
     setToast(message);
@@ -337,6 +378,7 @@ function App() {
     await Promise.allSettled([
       runSearch(resultsFilters),
       loadReservations(),
+      loadNotifications(),
       loadApprovals(),
       loadStats(),
       loadForecast(),
@@ -357,6 +399,7 @@ function App() {
       await Promise.allSettled([
         runSearch(resultsFilters),
         loadReservations(),
+        loadNotifications(),
         loadApprovals(),
         loadStats(),
         loadForecast(),
@@ -374,6 +417,7 @@ function App() {
       setAllocation(null);
       await Promise.allSettled([
         loadApprovals(),
+        loadNotifications(),
         loadReservations(),
         runSearch(resultsFilters),
         loadStats(),
@@ -394,6 +438,7 @@ function App() {
       await Promise.allSettled([
         runSearch(resultsFilters),
         loadReservations(),
+        loadNotifications(),
         loadApprovals(),
         loadStats(),
         loadForecast(),
@@ -506,6 +551,7 @@ function App() {
   function navigate(nextTab) {
     setTab(nextTab);
     setMobileNav(false);
+    if (nextTab === "notifications") loadNotifications();
   }
 
   const closeModal = useCallback(() => setModal(null), []);
@@ -539,6 +585,14 @@ function App() {
           >
             <CalendarDays size={19} /> Reservations{" "}
             <span className="ml-auto rounded-full bg-[#2f5961] px-1.5 py-0.5 text-[9px] text-[#bfe0d7]">{upcomingCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("notifications")}
+            className={`flex items-center gap-2 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-[11px] text-[#b3c7c5] hover:bg-[#1d414c] ${tab === "notifications" ? "bg-[#1d414c] text-white" : ""}`}
+          >
+            <Bell size={19} /> Notifications{" "}
+            {unreadNotificationCount > 0 ? <span className="ml-auto rounded-full bg-[#b65f4b] px-1.5 py-0.5 text-[9px] text-white">{unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}</span> : <ArrowRight size={15} className="ml-auto text-[#71909a]" />}
           </button>
           <button
             type="button"
@@ -599,7 +653,9 @@ function App() {
                 ? "Explore spaces"
                 : tab === "bookings"
                   ? "Reservations"
-                  : "Operations"}
+                  : tab === "notifications"
+                    ? "Notifications"
+                    : "Operations"}
             </strong>
           </div>
           <div className="flex items-center gap-5">
@@ -1122,6 +1178,45 @@ function App() {
                 />
               )}
             </section>
+          </div>
+        )}
+
+        {tab === "notifications" && (
+          <div className="mx-auto max-w-[1000px] px-10 py-[34px] max-[900px]:px-5 max-[540px]:px-4">
+            <div className="mb-6 flex items-end justify-between gap-4 max-[600px]:items-start max-[600px]:flex-col">
+              <div>
+                <span className="inline-flex items-center gap-[5px] font-display text-[9px] font-extrabold tracking-[1.55px] text-[#228474] uppercase">CAMPUS ACTIVITY</span>
+                <h1 className="m-0 font-display text-[34px] font-extrabold leading-[1.08] tracking-[-1.2px] text-ink max-[540px]:text-[28px]">Notifications</h1>
+                <p>Booking requests, decisions, and cancellations from this campus demo.</p>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="rounded-lg border border-line bg-white px-3 py-2 text-[10px] font-bold text-teal" onClick={loadNotifications} disabled={notificationLoading}>Refresh</button>
+                <button type="button" className="rounded-lg border-0 bg-[#1d8374] px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50" onClick={markAllNotificationsRead} disabled={unreadNotificationCount === 0}>Mark all read</button>
+              </div>
+            </div>
+            {notificationError && <div className="mb-3 rounded-lg bg-[#fff2ec] p-3 text-[11px] text-[#b85c45]" role="alert">{notificationError}</div>}
+            {notifications.length ? (
+              <div className="grid gap-2">
+                {notifications.map((item) => (
+                  <article key={item.id} className={`flex items-start gap-3 rounded-xl border p-4 ${item.isRead ? "border-line bg-white" : "border-[#b9ded2] bg-[#f1faf6]"}`}>
+                    <span className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${item.type === "cancellation" ? "bg-[#fff0e9] text-[#ad654d]" : item.type === "approval" ? "bg-[#fff3e3] text-[#9b7042]" : "bg-[#e3f3ec] text-teal"}`}><Bell size={18} /></span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="m-0 text-xs font-bold text-ink">{item.title}</h2>
+                        {!item.isRead && <span className="size-1.5 rounded-full bg-teal" aria-label="Unread" />}
+                      </div>
+                      <p className="my-1 text-[11px] leading-relaxed text-[#61777b]">{item.message}</p>
+                      <time className="text-[9px] text-muted" dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time>
+                    </div>
+                    {!item.isRead && <button type="button" className="shrink-0 rounded-md border-0 bg-white px-2.5 py-1.5 text-[9px] font-bold text-teal" onClick={() => markNotificationRead(item)}>Mark read</button>}
+                  </article>
+                ))}
+              </div>
+            ) : notificationLoading ? (
+              <p className="py-8 text-center text-xs text-muted" role="status">Loading campus activity…</p>
+            ) : (
+              <EmptyState icon={Bell} title="You’re all caught up" description="Reservation updates will appear here as bookings are created, approved, declined, or cancelled." />
+            )}
           </div>
         )}
 

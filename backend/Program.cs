@@ -3,6 +3,7 @@ using SpaceSense.Api;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<ReservationStore>();
+builder.Services.AddSingleton<NotificationStore>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .SetIsOriginAllowed(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
         (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host == "127.0.0.1"))
@@ -50,7 +51,7 @@ app.MapGet("/api/reservations", (HttpRequest request, ReservationStore store) =>
     return Results.Ok(result);
 });
 
-app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store) =>
+app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store, NotificationStore notifications) =>
 {
     var errors = ApiQueries.ValidateReservation(input);
     if (errors.Count > 0) return Results.ValidationProblem(errors);
@@ -62,49 +63,99 @@ app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store
             return Results.BadRequest(new { error = "The repeated time window is invalid or exceeds 12 hours after a campus time change." });
         if (series.SeriesId is null)
             return Results.Conflict(new { error = "One or more occurrences are already booked.", conflicts = series.Conflicts });
+        var first = series.Reservations[0];
+        var resourceName = ResourceCatalog.Find(first.ResourceId)?.Name ?? "campus resource";
+        notifications.Add(first.Status == "pending" ? "approval" : "reservation",
+            first.Status == "pending" ? "Weekly series needs approval" : "Weekly series confirmed",
+            $"{first.Title} in {resourceName}: {series.Reservations.Count} weekly occurrences starting {first.Start:MMM d, h:mm tt}.",
+            first.Id, series.SeriesId);
         return Results.Created($"/api/reservations?seriesId={Uri.EscapeDataString(series.SeriesId)}",
             new { seriesId = series.SeriesId, reservations = series.Reservations });
     }
     var result = store.Save(canonicalInput);
-    return result.Reservation is null
-        ? Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts })
-        : Results.Created($"/api/reservations/{result.Reservation.Id}", result.Reservation);
+    if (result.Reservation is null)
+        return Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts });
+    var saved = result.Reservation;
+    notifications.Add(saved.Status == "pending" ? "approval" : "reservation",
+        saved.Status == "pending" ? "Reservation needs approval" : "Reservation confirmed",
+        $"{saved.Title} in {ResourceCatalog.Find(saved.ResourceId)?.Name ?? "campus resource"} for {saved.Start:MMM d, h:mm tt}.",
+        saved.Id, saved.SeriesId);
+    return Results.Created($"/api/reservations/{saved.Id}", saved);
 });
 
-app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, ReservationStore store) =>
+app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, ReservationStore store, NotificationStore notifications) =>
 {
     var errors = ApiQueries.ValidateReservation(input);
     if (errors.Count > 0) return Results.ValidationProblem(errors);
     var canonicalInput = input with { ResourceId = ResourceCatalog.Find(input.ResourceId!)!.Id };
     var result = store.Save(canonicalInput, id);
     if (result.NotFound) return Results.NotFound();
-    return result.Reservation is null
-        ? Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts })
-        : Results.Ok(result.Reservation);
+    if (result.Reservation is null)
+        return Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts });
+    notifications.Add(result.Reservation.Status == "pending" ? "approval" : "reservation",
+        result.Reservation.Status == "pending" ? "Reservation update needs approval" : "Reservation updated",
+        $"{result.Reservation.Title} was updated for {result.Reservation.Start:MMM d, h:mm tt}.",
+        result.Reservation.Id, result.Reservation.SeriesId);
+    return Results.Ok(result.Reservation);
 });
 
-app.MapDelete("/api/reservations/{id}", (string id, ReservationStore store) =>
-    store.Delete(id) ? Results.NoContent() : Results.NotFound());
+app.MapDelete("/api/reservations/{id}", (string id, ReservationStore store, NotificationStore notifications) =>
+{
+    var reservation = store.Get(id);
+    if (reservation is null || !store.Delete(id)) return Results.NotFound();
+    notifications.Add("cancellation", "Reservation cancelled",
+        $"{reservation.Title} for {reservation.Start:MMM d, h:mm tt} was cancelled.", reservation.Id, reservation.SeriesId);
+    return Results.NoContent();
+});
 
-app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, ReservationStore store) =>
-    store.DeleteSeries(seriesId) > 0 ? Results.NoContent() : Results.NotFound());
+app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, ReservationStore store, NotificationStore notifications) =>
+{
+    var series = store.List().Where(item => item.SeriesId == seriesId).ToArray();
+    var deleted = store.DeleteSeries(seriesId);
+    if (deleted == 0) return Results.NotFound();
+    var first = series.FirstOrDefault();
+    notifications.Add("cancellation", "Weekly series cancelled",
+        $"{first?.Title ?? "Reservation series"}: {deleted} occurrences were cancelled.", first?.Id, seriesId);
+    return Results.NoContent();
+});
 
-app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store) =>
+app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store, NotificationStore notifications) =>
 {
     var result = store.Approve(id);
     if (result.NotFound) return Results.NotFound();
     if (result.InvalidState) return Results.Conflict(new { error = "Only pending reservations can be approved." });
     if (result.Reservation is null)
         return Results.Conflict(new { error = "The reservation conflicts with another active booking.", conflicts = result.Conflicts });
+    notifications.Add("approval", "Reservation approved",
+        $"{result.Reservation.Title} for {result.Reservation.Start:MMM d, h:mm tt} is confirmed.",
+        result.Reservation.Id, result.Reservation.SeriesId);
     return Results.Ok(result.Reservation);
 });
 
-app.MapPost("/api/reservations/{id}/reject", (string id, ReservationStore store) =>
+app.MapPost("/api/reservations/{id}/reject", (string id, ReservationStore store, NotificationStore notifications) =>
 {
     var result = store.Reject(id);
     if (result.NotFound) return Results.NotFound();
     if (result.InvalidState) return Results.Conflict(new { error = "Only pending reservations can be rejected." });
+    notifications.Add("approval", "Reservation declined",
+        $"{result.Reservation!.Title} for {result.Reservation.Start:MMM d, h:mm tt} was declined.",
+        result.Reservation.Id, result.Reservation.SeriesId);
     return Results.Ok(result.Reservation);
+});
+
+app.MapGet("/api/notifications", (NotificationStore notifications) =>
+{
+    var result = notifications.List();
+    return Results.Ok(new { notifications = result.Notifications, unreadCount = result.UnreadCount });
+});
+
+app.MapPost("/api/notifications/{id}/read", (string id, NotificationStore notifications) =>
+    notifications.MarkRead(id) ? Results.NoContent() : Results.NotFound());
+
+app.MapPost("/api/notifications/read-all", (NotificationStore notifications) =>
+{
+    notifications.MarkAllRead();
+    return Results.NoContent();
 });
 
 app.MapPost("/api/search/natural", async (NaturalSearchInput input, ReservationStore store,
