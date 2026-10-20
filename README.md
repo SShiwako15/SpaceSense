@@ -26,6 +26,7 @@ Open `http://localhost:5173`. On macOS or Linux, use `npm` instead of `npm.cmd`.
 
 - Search a seeded campus catalog by type, size, features, accessibility, and time window.
 - Check availability and create, edit, or cancel reservations. The API rejects overlapping bookings for the same resource, including concurrent requests handled by one API process.
+- Create weekly reservation series with up to 12 occurrences. Every occurrence is checked in one transaction; a conflict leaves the entire series unchanged. Individual occurrences or the full series can be cancelled later.
 - Submit laboratory and equipment bookings for staff approval. Pending requests hold their time; administrators can approve or decline them in the operations view.
 - Turn a natural-language request into structured search filters, then run those filters through the same reservation search engine.
 - View upcoming reservations and seven-day room utilization.
@@ -41,10 +42,11 @@ Reservation data is saved locally in `backend/Data/reservations.json` and seeded
 | GET | `/api/health` | API readiness and campus time zone |
 | GET | `/api/resources` | Catalog search and availability filtering |
 | GET | `/api/resources/{id}/availability` | Conflicts for a time window |
-| GET | `/api/reservations` | Reservations, optionally filtered by `from`, `to`, and `status` (`pending`, `confirmed`, or `rejected`) |
-| POST | `/api/reservations` | Create a reservation |
+| GET | `/api/reservations` | Reservations, optionally filtered by `from`, `to`, `status`, and `seriesId` |
+| POST | `/api/reservations` | Create a reservation or weekly series (`repeatWeeks`: 1–12) |
 | PUT | `/api/reservations/{id}` | Change a reservation |
 | DELETE | `/api/reservations/{id}` | Cancel a reservation |
+| DELETE | `/api/reservations/series/{seriesId}` | Cancel all occurrences in a series |
 | POST | `/api/reservations/{id}/approve` | Approve a pending reservation |
 | POST | `/api/reservations/{id}/reject` | Decline a pending reservation |
 | POST | `/api/search/natural` | Interpret a request and find matching resources |
@@ -59,4 +61,4 @@ Natural-language search works without credentials through a local parser. To ena
 
 ## MVP boundaries
 
-This is a local demonstration, with a single-process JSON reservation store and no user accounts or role enforcement. The administrator view demonstrates the approval workflow but is not protected by authentication. For a multi-user deployment, move reservations to a transactional database such as PostgreSQL and add identity and authorization. The demand outlook is a transparent seasonal baseline, not a trained machine-learning model; the academic-term dates are approximate. Recurring reservations, outbound notifications, and a trained forecasting model remain future work.
+This is a local demonstration, with a single-process JSON reservation store and no user accounts or role enforcement. The administrator view demonstrates the approval workflow but is not protected by authentication. For a multi-user deployment, move reservations to a transactional database such as PostgreSQL and add identity and authorization. The demand outlook is a transparent seasonal baseline, not a trained machine-learning model; the academic-term dates are approximate. Outbound notifications and a trained forecasting model remain future work.

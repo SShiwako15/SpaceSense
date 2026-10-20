@@ -384,6 +384,25 @@ function App() {
     }
   }
 
+  async function cancelReservationSeries(reservation) {
+    if (!reservation.seriesId) return;
+    if (!globalThis.confirm(`Cancel the entire weekly series for “${reservation.title}”?`)) return;
+    try {
+      await api.cancelReservationSeries(reservation.seriesId);
+      setToast("Weekly reservation series cancelled.");
+      setAllocation(null);
+      await Promise.allSettled([
+        runSearch(resultsFilters),
+        loadReservations(),
+        loadApprovals(),
+        loadStats(),
+        loadForecast(),
+      ]);
+    } catch (reason) {
+      setToast(`Could not cancel reservation series: ${reason.message}`);
+    }
+  }
+
   async function loadSample() {
     setSampleLoading(true);
     setAllocationError("");
@@ -1021,7 +1040,7 @@ function App() {
                         month: "short",
                       });
                       return (
-                        <article className="grid grid-cols-[55px_minmax(0,1fr)_180px_70px] items-center gap-4 border-b border-[#edf1ef] py-4 max-[800px]:grid-cols-[50px_minmax(0,1fr)_auto] max-[600px]:grid-cols-[48px_1fr]" key={reservation.id}>
+                        <article className="grid grid-cols-[55px_minmax(0,1fr)_180px_110px] items-center gap-4 border-b border-[#edf1ef] py-4 max-[800px]:grid-cols-[50px_minmax(0,1fr)_auto] max-[600px]:grid-cols-[48px_1fr]" key={reservation.id}>
                           <div className="grid place-items-center rounded-[10px] bg-[#edf7f2] py-2 text-teal">
                             <strong>{day}</strong>
                             <span>{month}</span>
@@ -1032,6 +1051,7 @@ function App() {
                               <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[8px] font-bold ${reservation.status === "pending" ? "bg-[#fff3e3] text-[#9b7042]" : reservation.status === "rejected" ? "bg-[#fff0e9] text-[#ad654d]" : "bg-[#e9f6ef] text-[#32856f]"}`}>
                                 {reservation.status || "confirmed"}
                               </span>
+                              {reservation.seriesId && <span className="rounded-md bg-[#edf2fb] px-1.5 py-1 text-[8px] font-bold text-[#6279a2]">weekly</span>}
                             </div>
                             <p>
                               <MapPin size={14} />{" "}
@@ -1070,6 +1090,16 @@ function App() {
                             >
                               <Trash2 size={17} />
                             </button>
+                            {reservation.seriesId && (
+                              <button
+                                type="button"
+                                title="Cancel entire weekly series"
+                                aria-label={`Cancel entire weekly series for ${reservation.title}`}
+                                onClick={() => cancelReservationSeries(reservation)}
+                              >
+                                <X size={17} />
+                              </button>
+                            )}
                           </div>
                         </article>
                       );

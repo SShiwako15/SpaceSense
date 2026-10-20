@@ -58,7 +58,7 @@ public sealed class ReservationStore
             var status = existing?.Status == "pending" || requiresApproval ? "pending" : "confirmed";
             var saved = new Reservation(id ?? Guid.NewGuid().ToString("N"), input.ResourceId!,
                 input.Title!.Trim(), input.Organizer!.Trim(), input.Start, input.End,
-                input.Attendees, status);
+                input.Attendees, status, existing?.SeriesId);
             var next = _reservations.Where(r => r.Id != id).Append(saved)
                 .OrderBy(r => r.Start).ToList();
             Persist(next);
@@ -163,6 +163,61 @@ public sealed class ReservationStore
         }
     }
 
+    public SeriesSaveResult SaveSeries(ReservationInput input)
+    {
+        lock (_gate)
+        {
+            var zone = FindCampusZone();
+            var localStart = TimeZoneInfo.ConvertTime(input.Start, zone).DateTime;
+            var localEnd = TimeZoneInfo.ConvertTime(input.End, zone).DateTime;
+            var startDate = DateOnly.FromDateTime(localStart);
+            var startTime = TimeOnly.FromDateTime(localStart);
+            var endDayOffset = DateOnly.FromDateTime(localEnd).DayNumber - startDate.DayNumber;
+            var endTime = TimeOnly.FromDateTime(localEnd);
+            var seriesId = Guid.NewGuid().ToString("N");
+            var requiresApproval = ResourceCatalog.Find(input.ResourceId!)?.RequiresApproval == true;
+            var status = requiresApproval ? "pending" : "confirmed";
+            var occurrences = new List<Reservation>(input.RepeatWeeks);
+
+            for (var week = 0; week < input.RepeatWeeks; week++)
+            {
+                var occurrenceDate = startDate.AddDays(7 * week);
+                var start = CampusTime.At(occurrenceDate, startTime.Hour, startTime.Minute);
+                var end = CampusTime.At(occurrenceDate.AddDays(endDayOffset), endTime.Hour, endTime.Minute);
+                if (end <= start || end - start > TimeSpan.FromHours(12))
+                    return new(null, Array.Empty<Reservation>(), Array.Empty<Reservation>(), true);
+
+                var conflicts = _reservations.Where(r =>
+                    r.ResourceId.Equals(input.ResourceId, StringComparison.OrdinalIgnoreCase) &&
+                    IsBlocking(r.Status) && r.Start < end && start < r.End).ToArray();
+                if (conflicts.Length > 0)
+                    return new(null, Array.Empty<Reservation>(), conflicts, false);
+
+                occurrences.Add(new Reservation(Guid.NewGuid().ToString("N"), input.ResourceId!,
+                    input.Title!.Trim(), input.Organizer!.Trim(), start, end, input.Attendees,
+                    status, seriesId));
+            }
+
+            var next = _reservations.Concat(occurrences).OrderBy(r => r.Start).ToList();
+            Persist(next);
+            _reservations = next;
+            return new(seriesId, occurrences, Array.Empty<Reservation>(), false);
+        }
+    }
+
+    public int DeleteSeries(string seriesId)
+    {
+        lock (_gate)
+        {
+            var next = _reservations.Where(r => r.SeriesId != seriesId).ToList();
+            var deleted = _reservations.Count - next.Count;
+            if (deleted == 0) return 0;
+            Persist(next);
+            _reservations = next;
+            return deleted;
+        }
+    }
+
     public DecisionResult Reject(string id)
     {
         lock (_gate)
@@ -190,8 +245,19 @@ public sealed class ReservationStore
             CampusTime.At(date, startHour), CampusTime.At(date, endHour), attendees, "confirmed");
 
     private static bool IsBlocking(string status) => status is "confirmed" or "pending";
+
+    private static TimeZoneInfo FindCampusZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById(CampusTime.ZoneName); }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+    }
 }
 
 public sealed record SaveResult(Reservation? Reservation, IReadOnlyList<Reservation> Conflicts, bool NotFound);
+public sealed record SeriesSaveResult(string? SeriesId, IReadOnlyList<Reservation> Reservations,
+    IReadOnlyList<Reservation> Conflicts, bool Invalid);
 public sealed record DecisionResult(Reservation? Reservation, IReadOnlyList<Reservation> Conflicts,
     bool NotFound, bool InvalidState);

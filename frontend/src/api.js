@@ -53,8 +53,8 @@ export const api = {
     request(
       `/resources/${encodeURIComponent(id)}/availability${queryString({ start, end, excludeId })}`,
     ),
-  reservations: (from, to, status) =>
-    request(`/reservations${queryString({ from, to, status })}`),
+  reservations: (from, to, status, seriesId) =>
+    request(`/reservations${queryString({ from, to, status, seriesId })}`),
   createReservation: (body) =>
     request("/reservations", { method: "POST", body: JSON.stringify(body) }),
   updateReservation: (id, body) =>
@@ -64,6 +64,8 @@ export const api = {
     }),
   cancelReservation: (id) =>
     request(`/reservations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  cancelReservationSeries: (seriesId) =>
+    request(`/reservations/series/${encodeURIComponent(seriesId)}`, { method: "DELETE" }),
   approveReservation: (id) =>
     request(`/reservations/${encodeURIComponent(id)}/approve`, { method: "POST" }),
   rejectReservation: (id) =>

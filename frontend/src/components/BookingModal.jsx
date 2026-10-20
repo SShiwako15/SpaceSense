@@ -42,6 +42,7 @@ export function BookingModal({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [repeatWeeks, setRepeatWeeks] = useState(1);
   const selectedResource =
     resources.find((item) => String(item.id) === form.resourceId) ||
     modal.resource;
@@ -135,17 +136,17 @@ export function BookingModal({
         attendees: Number(form.attendees),
         start: startIso,
         end: endIso,
+        ...(!booking ? { repeatWeeks: Number(repeatWeeks) } : {}),
       };
       const saved = booking
         ? await api.updateReservation(booking.id, payload)
         : await api.createReservation(payload);
-      await onSaved(
-        saved?.status === "pending"
-          ? "Request submitted for staff approval."
-          : booking
-            ? "Reservation updated."
-            : "Reservation confirmed.",
-      );
+      const count = saved?.reservations?.length || 1;
+      const status = saved?.status || saved?.reservations?.[0]?.status;
+      await onSaved(status === "pending"
+        ? count > 1 ? `${count} requests submitted for staff approval.` : "Request submitted for staff approval."
+        : count > 1 ? `${count} weekly reservations confirmed.`
+          : booking ? "Reservation updated." : "Reservation confirmed.");
     } catch (reason) {
       setError(reason.message);
       setBusy(false);
@@ -200,6 +201,16 @@ export function BookingModal({
           </p>
         )}
         <form className="grid gap-[15px]" onSubmit={submit}>
+          {!booking && (
+            <label className={fieldClass}>
+              <span className={labelClass}>Repeat weekly</span>
+              <select className={inputClass} value={repeatWeeks} onChange={(event) => setRepeatWeeks(Number(event.target.value))}>
+                <option value={1}>One-time reservation</option>
+                {[2, 4, 8, 12].map((weeks) => <option key={weeks} value={weeks}>Weekly · {weeks} occurrences total</option>)}
+              </select>
+              <small className="text-[9px] leading-relaxed text-[#849397]">Every occurrence must be available. If any date conflicts, the series is not created.</small>
+            </label>
+          )}
           <label className={fieldClass}>
             <span className={labelClass}>Space</span>
             <select

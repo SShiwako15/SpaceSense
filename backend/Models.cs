@@ -19,7 +19,8 @@ public sealed record Reservation(
     DateTimeOffset Start,
     DateTimeOffset End,
     int Attendees,
-    string Status);
+    string Status,
+    string? SeriesId = null);
 
 public sealed record ReservationInput(
     string? ResourceId,
@@ -27,7 +28,8 @@ public sealed record ReservationInput(
     string? Organizer,
     DateTimeOffset Start,
     DateTimeOffset End,
-    int Attendees);
+    int Attendees,
+    int RepeatWeeks = 1);
 
 public sealed record ResourceFilters(
     string? Query,

@@ -42,7 +42,9 @@ app.MapGet("/api/reservations", (HttpRequest request, ReservationStore store) =>
     var status = request.Query["status"].ToString();
     if (status.Length > 0 && status is not ("pending" or "confirmed" or "rejected"))
         return Results.BadRequest(new { error = "status must be pending, confirmed, or rejected." });
+    var seriesId = request.Query["seriesId"].ToString();
     var result = store.List().Where(r => (status.Length == 0 || r.Status == status) &&
+        (seriesId.Length == 0 || r.SeriesId == seriesId) &&
         (!from.HasValue || r.End > from.Value) &&
         (!to.HasValue || r.Start < to.Value)).OrderBy(r => r.Start).ToArray();
     return Results.Ok(result);
@@ -53,6 +55,16 @@ app.MapPost("/api/reservations", (ReservationInput input, ReservationStore store
     var errors = ApiQueries.ValidateReservation(input);
     if (errors.Count > 0) return Results.ValidationProblem(errors);
     var canonicalInput = input with { ResourceId = ResourceCatalog.Find(input.ResourceId!)!.Id };
+    if (canonicalInput.RepeatWeeks > 1)
+    {
+        var series = store.SaveSeries(canonicalInput);
+        if (series.Invalid)
+            return Results.BadRequest(new { error = "The repeated time window is invalid or exceeds 12 hours after a campus time change." });
+        if (series.SeriesId is null)
+            return Results.Conflict(new { error = "One or more occurrences are already booked.", conflicts = series.Conflicts });
+        return Results.Created($"/api/reservations?seriesId={Uri.EscapeDataString(series.SeriesId)}",
+            new { seriesId = series.SeriesId, reservations = series.Reservations });
+    }
     var result = store.Save(canonicalInput);
     return result.Reservation is null
         ? Results.Conflict(new { error = "Resource is already booked for this time.", conflicts = result.Conflicts })
@@ -73,6 +85,9 @@ app.MapPut("/api/reservations/{id}", (string id, ReservationInput input, Reserva
 
 app.MapDelete("/api/reservations/{id}", (string id, ReservationStore store) =>
     store.Delete(id) ? Results.NoContent() : Results.NotFound());
+
+app.MapDelete("/api/reservations/series/{seriesId}", (string seriesId, ReservationStore store) =>
+    store.DeleteSeries(seriesId) > 0 ? Results.NoContent() : Results.NotFound());
 
 app.MapPost("/api/reservations/{id}/approve", (string id, ReservationStore store) =>
 {
@@ -287,6 +302,8 @@ namespace SpaceSense.Api
                 errors["end"] = ["Reservations cannot exceed 12 hours."];
             if (input.Attendees < 1 || (resource is not null && input.Attendees > resource.Capacity))
                 errors["attendees"] = ["Attendees must be between 1 and the resource capacity."];
+            if (input.RepeatWeeks is < 1 or > 12)
+                errors["repeatWeeks"] = ["Repeat weeks must be between 1 and 12."];
             return errors;
         }
     }
