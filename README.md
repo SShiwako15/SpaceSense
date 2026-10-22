@@ -40,7 +40,7 @@ flowchart TD
     end
 
     Proxy <--> Express
-    Search <-->|"Optional: request text and structured filters"| OpenAI["OpenAI Responses API<br/>Server-side API key"]
+    Search <-->|Request text and structured filters"| OpenAI["OpenAI Responses API<br/>Server-side API key"]
     Storage <-->|"Private database connection"| DB[("PostgreSQL<br/>Accounts, sessions, resources, bookings,<br/>maintenance, waitlists, and notifications")]
     DB --- Volume["Persistent Docker volume"]
 ```
