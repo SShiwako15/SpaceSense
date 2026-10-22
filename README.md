@@ -14,6 +14,11 @@ The responsive interface includes a booking workspace, an integrated AI Assistan
 - Manage resources and maintenance, review utilization, forecast demand, and allocate events across available spaces.
 - Sign in with email and password using student and administrator roles and persistent sessions. No social sign-in methods.
 
+## Demo
+A complete 4-minute walkthrough of the application.
+[![Watch the Project Demo](https://img.youtube.com/vi/OuWrfWOrYaw/maxresdefault.jpg)](https://www.youtube.com/OuWrfWOrYaw)
+
+
 ## Application architecture
 
 ```mermaid
