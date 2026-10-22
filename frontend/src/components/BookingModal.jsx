@@ -5,11 +5,11 @@ import { durationHours, toApiTime, toLocalInput } from '../dates';
 import { capacityText } from './shared';
 
 const fieldClass = "grid min-w-0 gap-[7px]";
-const labelClass = "text-[10px] font-extrabold text-[#5f747a]";
+const labelClass = "text-[13px] font-extrabold text-[#5f747a]";
 const inputClass =
-  "h-[41px] min-w-0 w-full rounded-[7px] border border-[#e0e8e4] bg-white px-[11px] text-xs text-[#2a444b] placeholder:text-[#a3b0af] focus:border-[#5daf9f] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-[#77c8b9]";
+  "h-[41px] min-w-0 w-full rounded-[7px] border border-[#e0e8e4] bg-white px-[11px] text-sm text-[#2a444b] placeholder:text-[#a3b0af] focus:border-[#5daf9f] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-[#77c8b9]";
 const buttonClass =
-  "inline-flex min-h-[41px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-transparent px-[15px] py-[9px] text-[11px] font-extrabold transition duration-150 enabled:cursor-pointer enabled:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-[0.58] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-[#77c8b9] max-[540px]:flex-1";
+  "inline-flex min-h-[41px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-transparent px-[15px] py-[9px] text-[14px] font-extrabold transition duration-150 enabled:cursor-pointer enabled:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-[0.58] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-[#77c8b9] max-[540px]:flex-1";
 const availabilityClasses = {
   checking: "bg-[#f0f4f2] text-[#657d7a]",
   available: "bg-[#e8f6ee] text-[#258572]",
@@ -140,15 +140,18 @@ export function BookingModal({
         end: endIso,
         ...(!booking ? { repeatWeeks: Number(repeatWeeks) } : {}),
       };
-      const saved = booking
-        ? await api.updateReservation(booking.id, payload)
+      const saved = modal.seriesId
+        ? await api.updateReservationSeries(modal.seriesId, payload)
+        : booking
+          ? await api.updateReservation(booking.id, payload)
         : await api.createReservation(payload);
       const count = saved?.reservations?.length || 1;
       const status = saved?.status || saved?.reservations?.[0]?.status;
       await onSaved(status === "pending"
         ? count > 1 ? `${count} requests submitted for staff approval.` : "Request submitted for staff approval."
-        : count > 1 ? `${count} weekly reservations confirmed.`
-          : booking ? "Reservation updated." : "Reservation confirmed.");
+          : modal.seriesId ? `${count} upcoming occurrences updated.`
+            : count > 1 ? `${count} weekly reservations confirmed.`
+              : booking ? "Reservation updated." : "Reservation confirmed.");
     } catch (reason) {
       setError(reason.message);
       setBusy(false);
@@ -172,14 +175,14 @@ export function BookingModal({
       >
         <div className="flex items-start justify-between gap-[15px]">
           <div>
-            <span className="inline-flex items-center gap-[5px] font-display text-[9px] font-extrabold tracking-[1.55px] text-[#228474] uppercase">
+            <span className="inline-flex items-center gap-[5px] font-display text-[12px] font-extrabold tracking-[1.55px] text-[#228474] uppercase">
               RESERVATIONS
             </span>
             <h2
               id="booking-heading"
               className="mt-1.5 font-display text-[22px] font-bold tracking-[-0.6px]"
             >
-              {booking ? "Edit reservation" : "Reserve a space"}
+              {modal.seriesId ? "Edit weekly series" : booking ? "Edit reservation" : "Reserve a space"}
             </h2>
           </div>
           <button
@@ -191,14 +194,16 @@ export function BookingModal({
             <X size={20} />
           </button>
         </div>
-        <p className="mt-2 mb-[19px] text-[11px] leading-normal text-[#829296]">
-          {booking
-            ? "Change the details below. Availability is checked before you save."
-            : "Choose the details for your campus gathering."}{" "}
+        <p className="mt-2 mb-[19px] text-[14px] leading-normal text-[#829296]">
+            {modal.seriesId
+              ? "Update the remaining upcoming occurrences in this weekly series. Past occurrences stay unchanged."
+              : booking
+              ? "Change the details below. Availability is checked before you save."
+              : "Choose the details for your campus gathering."}{" "}
           All times are Eastern campus time.
         </p>
         {approvalRequired && (
-          <p className="-mt-3 mb-4 rounded-lg bg-[#fff5e9] px-3 py-2 text-[10px] leading-relaxed text-[#976b3e]">
+          <p className="-mt-3 mb-4 rounded-lg bg-[#fff5e9] px-3 py-2 text-[13px] leading-relaxed text-[#976b3e]">
             This resource requires staff approval. Your request will hold the time until it is approved or declined.
           </p>
         )}
@@ -210,7 +215,7 @@ export function BookingModal({
                 <option value={1}>One-time reservation</option>
                 {[2, 4, 8, 12].map((weeks) => <option key={weeks} value={weeks}>Weekly · {weeks} occurrences total</option>)}
               </select>
-              <small className="text-[9px] leading-relaxed text-[#849397]">Every occurrence must be available. If any date conflicts, the series is not created.</small>
+              <small className="text-[12px] leading-relaxed text-[#849397]">Every occurrence must be available. If any date conflicts, the series is not created.</small>
             </label>
           )}
           <label className={fieldClass}>
@@ -289,7 +294,7 @@ export function BookingModal({
             </label>
           </div>
           <div
-            className={`flex items-start gap-2 rounded-lg px-3 py-[11px] text-[10px] leading-normal [&>svg]:shrink-0 ${availabilityClasses[availability.state]}`}
+            className={`flex items-start gap-2 rounded-lg px-3 py-[11px] text-[13px] leading-normal [&>svg]:shrink-0 ${availabilityClasses[availability.state]}`}
             role="status"
           >
             {availability.state === "available" ? (
@@ -316,7 +321,7 @@ export function BookingModal({
           </div>
           {error && (
             <div
-              className="flex items-center gap-[7px] rounded-lg bg-[#fff2ec] p-2.5 text-[11px] text-[#b85c45] [&>svg]:shrink-0"
+              className="flex items-center gap-[7px] rounded-lg bg-[#fff2ec] p-2.5 text-[14px] text-[#b85c45] [&>svg]:shrink-0"
               role="alert"
             >
               <CircleAlert size={16} /> {error}
@@ -332,7 +337,7 @@ export function BookingModal({
             </button>
             <button
               type="submit"
-              className={`${buttonClass} bg-[#1d8374] text-white shadow-[0_4px_10px_#18807125] enabled:hover:bg-[#136d61] enabled:hover:shadow-[0_7px_16px_#18807130]`}
+              className={`${buttonClass} bg-[#07354e] text-white shadow-[0_4px_10px_#18807125] enabled:hover:bg-[#104a65] enabled:hover:shadow-[0_7px_16px_#18807130]`}
               disabled={busy || availability.state !== "available"}
             >
               {busy ? "Saving…" : approvalRequired ? "Request approval" : booking ? "Save changes" : "Confirm booking"}{" "}

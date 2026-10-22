@@ -80,11 +80,6 @@ export const MonitorPlay = icon(
   rect(3, 4, 18, 14, 2),
   path("m10 8 5 3-5 3zM8 21h8m-4-3v3"),
 );
-export const MoreHorizontal = icon(
-  circle(5, 12, 1),
-  circle(12, 12, 1),
-  circle(19, 12, 1),
-);
 export const Pencil = icon(
   path(
     "m4 20 4.5-1 10-10-3.5-3.5-10 10zM13.5 7l3.5 3.5M15 5.5l1.5-1.5a2 2 0 0 1 3 3L18 8.5",

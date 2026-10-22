@@ -1,0 +1,12 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+{$SPACESENSE_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 256KB
+	}
+	reverse_proxy app:8080
+}

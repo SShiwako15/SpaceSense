@@ -48,14 +48,37 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  me: () => request("/auth/me"),
+  login: (email, password) =>
+    request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  register: (displayName, email, password) =>
+    request("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ displayName, email, password }),
+    }),
+  logout: () => request("/auth/logout", { method: "POST" }),
   resources: (filters = {}) => request(`/resources${queryString(filters)}`),
+  adminResources: () => request("/admin/resources"),
+  createResource: (body) =>
+    request("/admin/resources", { method: "POST", body: JSON.stringify(body) }),
+  updateResource: (id, body) =>
+    request(`/admin/resources/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteResource: (id) =>
+    request(`/admin/resources/${encodeURIComponent(id)}`, { method: "DELETE" }),
   availability: (id, start, end, excludeId) =>
     request(
       `/resources/${encodeURIComponent(id)}/availability${queryString({ start, end, excludeId })}`,
     ),
   reservations: (from, to, status, seriesId) =>
     request(`/reservations${queryString({ from, to, status, seriesId })}`),
-  maintenance: (resourceId) => request(`/maintenance${queryString({ resourceId })}`),
+  maintenance: (resourceId) =>
+    request(`/maintenance${queryString({ resourceId })}`),
   createMaintenance: (body) =>
     request("/maintenance", { method: "POST", body: JSON.stringify(body) }),
   deleteMaintenance: (id) =>
@@ -63,6 +86,8 @@ export const api = {
   waitlist: () => request("/waitlist"),
   createWaitlistRequest: (body) =>
     request("/waitlist", { method: "POST", body: JSON.stringify(body) }),
+  claimWaitlistRequest: (id) =>
+    request(`/waitlist/${encodeURIComponent(id)}/claim`, { method: "POST" }),
   deleteWaitlistRequest: (id) =>
     request(`/waitlist/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createReservation: (body) =>
@@ -72,18 +97,32 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  updateReservationSeries: (seriesId, body) =>
+    request(`/reservations/series/${encodeURIComponent(seriesId)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   cancelReservation: (id) =>
     request(`/reservations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   cancelReservationSeries: (seriesId) =>
-    request(`/reservations/series/${encodeURIComponent(seriesId)}`, { method: "DELETE" }),
+    request(`/reservations/series/${encodeURIComponent(seriesId)}`, {
+      method: "DELETE",
+    }),
   approveReservation: (id) =>
-    request(`/reservations/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+    request(`/reservations/${encodeURIComponent(id)}/approve`, {
+      method: "POST",
+    }),
   rejectReservation: (id) =>
-    request(`/reservations/${encodeURIComponent(id)}/reject`, { method: "POST" }),
+    request(`/reservations/${encodeURIComponent(id)}/reject`, {
+      method: "POST",
+    }),
   notifications: () => request("/notifications"),
   markNotificationRead: (id) =>
-    request(`/notifications/${encodeURIComponent(id)}/read`, { method: "POST" }),
-  markAllNotificationsRead: () => request("/notifications/read-all", { method: "POST" }),
+    request(`/notifications/${encodeURIComponent(id)}/read`, {
+      method: "POST",
+    }),
+  markAllNotificationsRead: () =>
+    request("/notifications/read-all", { method: "POST" }),
   naturalSearch: (prompt) =>
     request("/search/natural", {
       method: "POST",

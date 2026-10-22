@@ -1,4 +1,5 @@
-import { ArrowUpRight, Building2, FlaskConical, Lightbulb, MapPin, MonitorPlay, Search, ShieldCheck, Star, Users } from '../icons.jsx';
+﻿import { ArrowUpRight, Building2, Clock3, FlaskConical, Lightbulb, MapPin, MonitorPlay, Search, ShieldCheck, Star, Users } from '../icons.jsx';
+
 export function resourceIcon(type) {
   const value = String(type || "").toLowerCase();
   if (value.includes("lab")) return FlaskConical;
@@ -6,7 +7,6 @@ export function resourceIcon(type) {
   if (value.includes("study")) return Lightbulb;
   return Building2;
 }
-
 export function resourceTone(type) {
   const value = String(type || "").toLowerCase();
   if (value.includes("lab")) return "lavender";
@@ -14,141 +14,42 @@ export function resourceTone(type) {
   if (value.includes("equipment")) return "blue";
   return "mint";
 }
-
 export function capacityText(resource) {
-  const unit =
-    String(resource.type).toLowerCase() === "equipment" ? "unit" : "seat";
+  const unit = String(resource.type).toLowerCase() === "equipment" ? "unit" : "seat";
   return `${resource.capacity} ${unit}${Number(resource.capacity) === 1 ? "" : "s"}`;
 }
-
 export function shortName(name) {
-  return String(name || "SP")
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 3)
-    .toUpperCase();
+  return String(name || "SP").split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
-
 export function formatPercent(value) {
   const number = Number(value);
   return `${Number.isFinite(number) ? Math.round(number) : 0}%`;
 }
-
 export function PanelTitle({ eyebrow, title, description, action, className = "" }) {
-  return (
-    <div className={`mb-[18px] flex items-end justify-between gap-4 max-[540px]:items-start ${className}`}>
-      <div>
-        {eyebrow && <span className="inline-flex items-center gap-[5px] font-display text-[9px] font-extrabold tracking-[1.55px] text-[#228474] uppercase">{eyebrow}</span>}
-        <h2 className="mt-[5px] mb-1 font-display text-[21px] font-bold tracking-[-0.65px] text-[#1b353d] max-[540px]:text-[18px]">{title}</h2>
-        {description && <p className="m-0 text-[11px] text-[#839296]">{description}</p>}
-      </div>
-      {action}
-    </div>
-  );
+  return <div className={`panel-title ${className}`}>
+    <div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2>{title}</h2>{description && <p>{description}</p>}</div>
+    {action && <div className="panel-actions">{action}</div>}
+  </div>;
 }
-
 export function EmptyState({ icon: Icon = Search, title, description, action }) {
-  return (
-    <div className="grid justify-items-center rounded-[13px] border border-dashed border-[#d7e3dd] bg-white px-5 py-[55px] text-center">
-      <span className="mb-[15px] grid size-[54px] place-items-center rounded-2xl bg-[#e9f4ef] text-[#248674]">
-        <Icon size={26} strokeWidth={1.7} />
-      </span>
-      <h3 className="mt-0 mb-1.5 font-display text-[17px] font-bold">{title}</h3>
-      <p className="mt-0 mb-3.5 max-w-[320px] text-[11px] leading-[1.5] text-[#849397]">{description}</p>
-      {action}
-    </div>
-  );
+  return <div className="empty-state"><span className="empty-icon"><Icon size={25} strokeWidth={1.7} /></span><h3>{title}</h3><p>{description}</p>{action}</div>;
 }
-
 export function ResourceCard({ resource, onBook, windowLabel, isFavorite, onToggleFavorite }) {
   const Icon = resourceIcon(resource.type);
-  const tone = resourceTone(resource.type);
-  const visualTone = {
-    mint: "bg-[linear-gradient(115deg,#c3dcd3,#a6c9bd)]",
-    peach: "bg-[linear-gradient(115deg,#f0d5c3,#ebc4a9)]",
-    lavender: "bg-[linear-gradient(115deg,#dcdde9,#c9cbe2)]",
-    blue: "bg-[linear-gradient(115deg,#c9dce9,#afcbdc)]",
-  };
-  const iconTone = {
-    mint: "text-[#245e56]",
-    peach: "text-[#8e5d41]",
-    lavender: "text-[#606985]",
-    blue: "text-[#476e84]",
-  };
-  const featureClass = "rounded-[5px] border border-[#e7eeea] bg-[#f0f4f1] px-[7px] py-[5px] text-[9px] whitespace-nowrap text-[#617980]";
-  return (
-    <article className="min-w-0 overflow-hidden rounded-[13px] border border-[#e2e8e5] bg-white shadow-[0_5px_17px_#16343b09] transition-[transform,box-shadow] duration-200 hover:-translate-y-[3px] hover:shadow-[0_14px_25px_#16343b16]">
-      <div className={`relative h-[134px] overflow-hidden max-[540px]:h-[150px] ${visualTone[tone]}`}>
-        <div aria-hidden="true" className="absolute top-[7px] left-[35%] h-[105px] w-[180px] -rotate-30 rounded-full border border-[#ffffff8c]" />
-        <div aria-hidden="true" className="absolute -top-[11px] left-1/4 h-[145px] w-[270px] -rotate-30 rounded-full border border-[#ffffff75]" />
-        <div aria-hidden="true" className="absolute inset-0 bg-[repeating-linear-gradient(115deg,transparent_0_26px,#ffffff1d_27px_28px)] [mask-image:linear-gradient(90deg,transparent,black)]" />
-        <div className={`absolute top-[26px] left-[calc(50%-38px)] grid size-[76px] -rotate-6 place-items-center rounded-[20px] border border-[#ffffff88] bg-[#ffffff3c] shadow-[0_10px_28px_#28534720] backdrop-blur-[4px] ${iconTone[tone]}`}>
-          <Icon size={42} strokeWidth={1.35} />
-        </div>
-        <span className="absolute top-4 left-4 text-[9px] font-extrabold tracking-[1px] text-[#315f58]">
-          {shortName(resource.name)} /{" "}
-          {String(resource.id).slice(0, 3).toUpperCase()}
-        </span>
-        <span className="absolute right-[13px] bottom-3 flex items-center gap-1 rounded-md bg-[#fffffff0] px-2 py-1.5 text-[9px] font-extrabold text-[#2a5b53]">
-          <Users size={13} /> {capacityText(resource)}
-        </span>
-      </div>
-      <div className="px-[18px] pt-[17px] pb-[13px] max-[1250px]:px-[13px] max-[1250px]:pt-[15px] max-[1250px]:pb-3">
-        <div className="flex items-center justify-between gap-1.5 text-[9px] font-extrabold tracking-[0.9px] text-[#278372] uppercase">
-          <span>{resource.type || "Campus space"}</span>
-          {resource.accessible && (
-            <span className="flex items-center gap-[3px] text-[8px] tracking-normal text-[#78938d] normal-case" title="Accessible space">
-              <ShieldCheck size={14} /> Accessible
-            </span>
-          )}
-          {resource.requiresApproval && (
-            <span className="rounded bg-[#fff3e3] px-1.5 py-1 text-[8px] tracking-normal text-[#9b7042] normal-case">Approval required</span>
-          )}
-        </div>
-        <h3 className="mt-[9px] mb-[7px] font-display text-base leading-[1.2] font-bold tracking-[-0.3px] text-[#213b43]">{resource.name}</h3>
-        <p className="mt-0 mb-[11px] flex items-center gap-1 text-[10px] text-[#819397]">
-          <MapPin size={14} /> {resource.building || "Campus"}
-        </p>
-        <p className="mt-0 mb-3 line-clamp-2 min-h-[31px] text-[10px] leading-[1.55] text-[#6d8086] max-[540px]:min-h-0">
-          {resource.description ||
-            "A flexible space for campus activities and collaboration."}
-        </p>
-        <div className="flex min-h-[25px] flex-wrap gap-[5px]">
-          {(resource.features || []).slice(0, 3).map((feature) => (
-            <span className={featureClass} key={feature}>{feature}</span>
-          ))}
-          {(resource.features || []).length > 3 && (
-            <span className={featureClass}>+{resource.features.length - 3}</span>
-          )}
-        </div>
-        <div className="mt-[13px] flex items-center justify-between border-t border-[#edf0ee] pt-[11px]">
-          <span className="flex items-center gap-1.5 text-[9px] font-extrabold text-[#288475]">
-            <span className="inline-block size-1.5 rounded-full bg-[#47af86] shadow-[0_0_0_3px_#def3e9]" /> Available {windowLabel}
-          </span>
-          <div className="flex gap-1.5">
-            <button
-              className={`grid size-[29px] place-items-center rounded-[7px] border border-[#dce8e2] bg-white ${isFavorite ? "text-[#d18a42]" : "text-[#94a4a1]"} hover:bg-[#fff8ed]`}
-              type="button"
-              onClick={() => onToggleFavorite(resource.id)}
-              aria-label={`${isFavorite ? "Remove" : "Save"} ${resource.name} ${isFavorite ? "from" : "to"} favorites`}
-              aria-pressed={Boolean(isFavorite)}
-              title={isFavorite ? "Remove from saved spaces" : "Save this space"}
-            >
-              <Star size={16} fill={isFavorite ? "currentColor" : "none"} />
-            </button>
-            <button
-              className="grid size-[29px] place-items-center rounded-[7px] border-0 bg-[#1e8374] text-white hover:bg-[#136d61]"
-              type="button"
-              onClick={() => onBook(resource)}
-              aria-label={`Book ${resource.name}`}
-            >
-              <ArrowUpRight size={20} />
-            </button>
-          </div>
-        </div>
-      </div>
-    </article>
-  );
+  return <article className="resource-card">
+    <div className={`resource-symbol ${resourceTone(resource.type)}`} aria-hidden="true"><Icon size={30} strokeWidth={1.5} /></div>
+    <div className="resource-information">
+      <div className="resource-title-row"><span className="type-badge">{resource.type === "study" ? "Study space" : resource.type}</span>{resource.requiresApproval && <span className="approval-badge">Staff approval</span>}</div>
+      <h3>{resource.name}</h3>
+      <p className="resource-description">{resource.description || "A flexible space for campus activities and collaboration."}</p>
+      <div className="resource-meta"><span><MapPin size={16} />{resource.building || "Campus"}</span><span><Users size={16} />{capacityText(resource)}</span>{resource.accessible && <span><ShieldCheck size={16} />Accessible</span>}</div>
+      <div className="resource-features">{(resource.features || []).map((feature) => <span key={feature}>{feature}</span>)}</div>
+    </div>
+    <div className="resource-actions">
+      <button className={`icon-button favorite-button ${isFavorite ? "is-saved" : ""}`} type="button" onClick={() => onToggleFavorite(resource.id)} aria-label={`${isFavorite ? "Remove" : "Save"} ${resource.name} ${isFavorite ? "from" : "to"} favorites`} aria-pressed={Boolean(isFavorite)} title={isFavorite ? "Remove from saved spaces" : "Save this space"}><Star size={19} fill={isFavorite ? "currentColor" : "none"} /></button>
+      <span className="availability-label"><span />Available for your time</span>
+      <span className="availability-time"><Clock3 size={15} />{windowLabel}</span>
+      <button className="button button-primary" type="button" onClick={() => onBook(resource)} aria-label={`Book ${resource.name}`}>{resource.type === "equipment" ? "Book equipment" : "Book this space"}<ArrowUpRight size={17} /></button>
+    </div>
+  </article>;
 }
-
