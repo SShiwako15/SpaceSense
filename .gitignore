@@ -1,15 +1,12 @@
-# Frontend
+# Node.js dependencies and builds
+node_modules/
+backend/node_modules/
+.migration-backup/
 frontend/node_modules/
 frontend/dist/
 .npm-cache/
-
-# .NET build output and local SDK state
-backend/bin/
-backend/obj/
-tests/**/bin/
-tests/**/obj/
-.dotnet/
-.nuget/
+test-results/
+playwright-report/
 
 # Local data and secrets
 data/
@@ -17,7 +14,10 @@ backend/data/
 backend/Data/
 .env
 .env.*
-!.env.example
+backups/
+aws/apprunner-service.json
+.migration-backup
+aws/
 
 # Editor and OS files
 .vs/

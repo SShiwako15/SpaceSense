@@ -1,0 +1,93 @@
+name: spacesense-production
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: spacesense
+      POSTGRES_USER: spacesense_admin
+      POSTGRES_PASSWORD: ${SPACESENSE_DB_ADMIN_PASSWORD:?Set the database administrator password}
+      SPACESENSE_DB_PASSWORD: ${SPACESENSE_DB_PASSWORD:?Set the application database password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/init-db.sh:/docker-entrypoint-initdb.d/01-spacesense.sh:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U spacesense_admin -d spacesense"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    pids_limit: 200
+    stop_grace_period: 30s
+
+  app:
+    build:
+      context: .
+      target: production
+    image: spacesense:production
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://spacesense_app:${SPACESENSE_DB_PASSWORD}@db:5432/spacesense
+      SPACESENSE_PUBLIC_URL: https://${SPACESENSE_DOMAIN:?Set a public domain pointing to this server}
+      SPACESENSE_TRUST_PROXY: "1"
+      SPACESENSE_DEMO_MODE: "false"
+      SPACESENSE_ADMIN_EMAIL: ${SPACESENSE_ADMIN_EMAIL:?Set the initial administrator email}
+      SPACESENSE_ADMIN_PASSWORD: ${SPACESENSE_ADMIN_PASSWORD:?Set a strong initial administrator password}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-10000}
+    networks: [web, database]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 6s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    pids_limit: 100
+    stop_grace_period: 20s
+
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      SPACESENSE_DOMAIN: ${SPACESENSE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set the certificate contact email}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [web]
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 100
+    stop_grace_period: 20s
+
+networks:
+  web:
+  database:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

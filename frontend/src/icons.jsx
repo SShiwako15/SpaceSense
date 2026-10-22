@@ -35,6 +35,10 @@ export const ArrowRight = icon(path("M5 12h14m-7-7 7 7-7 7"));
 export const ArrowUpRight = icon(path("M7 17 17 7M7 7h10v10"));
 export const ArrowDownRight = icon(path("M7 7 17 17M17 7v10H7"));
 export const BarChart3 = icon(path("M3 3v18h18M8 16v-5m5 5V6m5 10v-3"));
+export const Bell = icon(
+  path("M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"),
+  path("M10 21h4"),
+);
 export const Building2 = icon(
   rect(3, 3, 12, 18, 2),
   path("M15 9h6v12H3m5-14h2m-2 4h2m-2 4h2m8-2h1M8 21v-3h3v3"),
@@ -76,11 +80,6 @@ export const MonitorPlay = icon(
   rect(3, 4, 18, 14, 2),
   path("m10 8 5 3-5 3zM8 21h8m-4-3v3"),
 );
-export const MoreHorizontal = icon(
-  circle(5, 12, 1),
-  circle(12, 12, 1),
-  circle(19, 12, 1),
-);
 export const Pencil = icon(
   path(
     "m4 20 4.5-1 10-10-3.5-3.5-10 10zM13.5 7l3.5 3.5M15 5.5l1.5-1.5a2 2 0 0 1 3 3L18 8.5",
@@ -88,6 +87,7 @@ export const Pencil = icon(
 );
 export const Plus = icon(path("M12 5v14M5 12h14"));
 export const Search = icon(circle(11, 11, 7), path("m16 16 5 5"));
+export const Star = icon(path("m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z"));
 export const Send = icon(path("m22 2-7 20-4-9-9-4zM22 2 11 13"));
 export const ShieldCheck = icon(
   path("M12 2 4 5v6c0 5 3 9 8 11 5-2 8-6 8-11V5z"),

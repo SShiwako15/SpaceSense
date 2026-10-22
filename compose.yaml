@@ -1,0 +1,89 @@
+name: spacesense-demo
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: spacesense
+      POSTGRES_USER: spacesense
+      POSTGRES_PASSWORD: ${SPACESENSE_DB_PASSWORD:?Run scripts/Start-Demo.ps1 first}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U spacesense -d spacesense"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      target: runtime
+    image: spacesense-demo:local
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://spacesense:${SPACESENSE_DB_PASSWORD}@db:5432/spacesense
+      SPACESENSE_ADMIN_EMAIL: ${SPACESENSE_ADMIN_EMAIL:?Set the demo admin email in .env}
+      SPACESENSE_ADMIN_PASSWORD: ${SPACESENSE_ADMIN_PASSWORD:?Set the demo admin password in .env}
+      SPACESENSE_DEMO_MODE: "true"
+      SPACESENSE_DEMO_STUDENT_EMAIL: ${SPACESENSE_DEMO_STUDENT_EMAIL:?Set the demo student email in .env}
+      SPACESENSE_DEMO_STUDENT_PASSWORD: ${SPACESENSE_DEMO_STUDENT_PASSWORD:?Set the demo student password in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+    ports:
+      - "127.0.0.1:${SPACESENSE_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    init: true
+    networks:
+      default:
+        aliases: [spacesense.test]
+
+  test:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql://spacesense:${SPACESENSE_DB_PASSWORD}@db:5432/spacesense
+    depends_on:
+      db:
+        condition: service_healthy
+
+  browser:
+    profiles: [test]
+    build:
+      context: .
+      target: browser-test
+    environment:
+      PLAYWRIGHT_BASE_URL: http://spacesense.test:8080
+      SPACESENSE_ADMIN_EMAIL: ${SPACESENSE_ADMIN_EMAIL}
+      SPACESENSE_ADMIN_PASSWORD: ${SPACESENSE_ADMIN_PASSWORD}
+      SPACESENSE_DEMO_STUDENT_EMAIL: ${SPACESENSE_DEMO_STUDENT_EMAIL}
+      SPACESENSE_DEMO_STUDENT_PASSWORD: ${SPACESENSE_DEMO_STUDENT_PASSWORD}
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./test-results:/workspace/test-results
+    init: true
+    shm_size: 1gb
+
+volumes:
+  postgres_data:
