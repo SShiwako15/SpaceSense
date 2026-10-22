@@ -14,6 +14,39 @@ The responsive interface includes a booking workspace, an integrated AI Assistan
 - Manage resources and maintenance, review utilization, forecast demand, and allocate events across available spaces.
 - Sign in with email and password using student and administrator roles and persistent sessions. No social sign-in methods.
 
+## Application architecture
+
+```mermaid
+flowchart TD
+    User["Student or administrator"] --> UI["React interface in the browser<br/>Search, reservations, and operations"]
+    UI <-->|"HTTPS in production"| Proxy["Caddy reverse proxy<br/>TLS termination"]
+
+    subgraph App["Node.js application container"]
+        Express["Express server<br/>Serves the frontend and /api endpoints"]
+        Auth["Authentication and access control<br/>Sessions, roles, and request validation"]
+        Search["Search interpreter<br/>Local parser and validated model filters"]
+        Rules["Booking and operations logic<br/>Availability, recurring bookings, approvals,<br/>waitlists, notifications, and planning"]
+        Storage["Storage layer<br/>Transactional reads and writes"]
+        Express --> Auth
+        Auth -->|"Describe a space"| Search
+        Auth -->|"Browse or manage bookings"| Rules
+        Search -->|"Validated search filters"| Rules
+        Rules <--> Storage
+    end
+
+    Proxy <--> Express
+    Search <-->|"Optional: request text and structured filters"| OpenAI["OpenAI Responses API<br/>Server-side API key"]
+    Storage <-->|"Private database connection"| DB[("PostgreSQL<br/>Accounts, sessions, resources, bookings,<br/>maintenance, waitlists, and notifications")]
+    DB --- Volume["Persistent Docker volume"]
+```
+
+1. The browser loads the React interface from Express and sends API requests to the same origin. In production, Caddy handles HTTPS; the local demo connects directly to Express at `localhost:8080`.
+2. The API authenticates the session, checks the user's role, and validates requests before accessing application data. Administrator-only operations include catalog management, approvals, maintenance, and planning reports.
+3. Natural-language search combines a local parser with optional OpenAI extraction. Model output is validated before searching the catalog; provider failures fall back to the local parser. OpenAI does not access the database or create bookings.
+4. Booking logic checks capacity, features, existing reservations, and maintenance. Changes are saved transactionally in PostgreSQL, whose constraints also prevent conflicting bookings. Approval decisions and cancellations update related notifications and waitlist availability.
+
+PostgreSQL is used by both Docker stacks. Direct development runs can use local JSON storage when no database is configured. Forecasting and event allocation produce planning suggestions; reservations are created through the booking workflow.
+
 ## Run locally with Docker
 
 Install Docker Desktop, select Linux containers, and start the engine. From the repository root on Windows:
@@ -26,8 +59,6 @@ Open **http://localhost:8080**. The launcher creates a private `.env` with admin
 
 The demo contains 15 fictional resources, booking history, upcoming reservations, and an approval request. PostgreSQL stays private to Docker; the web port binds to `127.0.0.1`. See [DEMO.md](DEMO.md) for a walkthrough and troubleshooting.
 
-On other systems, copy `.env.example` to `.env`, replace every password placeholder, and run:
-
 ```sh
 docker compose up --build --detach --wait
 ```
@@ -37,8 +68,6 @@ docker compose ps                 # Check service health
 docker compose down               # Stop; retain the database
 docker compose up --detach --wait # Restart
 ```
-
-Do not use `down --volumes` on a database you want to keep.
 
 ## LLM-assisted search
 
@@ -52,10 +81,6 @@ OPENAI_MODEL=gpt-6-luna
 ```sh
 docker compose up --detach --wait app
 ```
-
-The key stays on the server. Never use a `VITE_` prefix or commit it. Search sends request text to OpenAI, without account details or the reservations database. Avoid sensitive information in search requests.
-
-The integration uses the [Responses API with Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), validates extracted filters, sets `store: false`, and applies a timeout. GPT-6 Luna uses `reasoning.effort: none` for focused extraction. Successful provider results have `source: "openai+rules"`; provider failures return local results with `source: "rule-based"`. A fallback is not a successful provider call. Billing, model access, and availability depend on your OpenAI project.
 
 Verify an actual provider request (this uses a small amount of API credit):
 
@@ -74,11 +99,6 @@ The separate production stack provides HTTPS through Caddy, private PostgreSQL n
 ```sh
 docker compose --env-file .env.production -f compose.production.yaml up --build --detach --wait
 ```
-
-Visit the configured HTTPS domain. Do not reuse the demo database or publish application/database ports directly. Configure backups, monitoring, and host updates before accepting real users. See [SECURITY.md](SECURITY.md) for operations and recovery. Public certificate issuance requires a real domain; local checks do not establish a public deployment.
-
-Changing bootstrap settings does not reset an existing production administrator's password. Retain administrator access and define an operator-assisted recovery procedure.
-
 ### Server settings
 
 | Setting | Purpose |
@@ -105,7 +125,7 @@ npm test
 npm run build
 ```
 
-Run `npm run dev` and `npm run dev:frontend` in separate terminals. The frontend proxies `/api` to the backend. Without PostgreSQL, development uses JSON storage under `backend/Data/`. Production requires PostgreSQL and an HTTPS origin. Supply administrator credentials through the process environment; the direct Node entrypoint does not automatically load `.env`.
+Run `npm run dev` and `npm run dev:frontend` in separate terminals. The frontend proxies `/api` to the backend. Without PostgreSQL, development uses JSON storage under `backend/Data/`. Supply administrator credentials through the process environment; the direct Node entrypoint does not automatically load `.env`.
 
 For complete isolated Docker verification on Windows:
 
